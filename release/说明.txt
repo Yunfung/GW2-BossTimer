@@ -1,0 +1,31 @@
+GW2 BOSS 计时器 v1.0.0（Nexus 插件）
+=====================================
+
+作者：摸鱼哥
+
+安装
+----
+1. 关闭游戏
+2. 把 addons\BossTimer.dll 复制到游戏的 addons 目录
+   （与 Gw2-64.exe 同级的 addons，不是 addons\BossTimer）
+3. 启动游戏，Nexus 插件列表里出现「BOSS计时器」即成功
+
+使用
+----
+- 面板默认显示，每个 BOSS 一个按钮，进行中的排最上面
+- 左键：按默认频道发送一行 BOSS 信息
+- 右键：选择本次发送的频道（含公会 /g、/g1-/g6，可自定义）
+- 鼠标悬停：预览将要发送的文本
+- F10：显示 / 隐藏面板；标题栏可拖动
+- 设置：Nexus -> 设置 -> BOSS计时器
+
+配置与缓存
+----------
+addons\BossTimer\BossTimer.ini          配置文件
+addons\BossTimer\bossdata_cache.js      时刻表缓存
+
+数据来源：星岬岛 BOSS 计时器页面（每 30 分钟自动抓取，断网用缓存）
+
+卸载
+----
+删除 addons\BossTimer.dll 和 addons\BossTimer 目录即可。
