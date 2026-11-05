@@ -65,6 +65,7 @@ struct Config
     float btnH = 0.0f;
     int graceMin = 15;
     int filterMode = 0; // 0=全部 1=BOSS 2=事件
+    std::vector<std::string> hiddenEvents; // 区域筛选：被隐藏的事件名，空=全部显示
     std::string prefix = ""; // 空 = 发送到当前频道
     int refreshMin = 30;
     std::string dataUrl = "https://gw2.wishingstarmoye.com/la-assets/gw2timer/data/timerbox_bossdata.js";
@@ -211,6 +212,15 @@ static void SaveCfg()
     snprintf(buf, sizeof(buf), "btnW=%.1f\nbtnH=%.1f\n", gCfg.btnW, gCfg.btnH); s += buf;
     s += "graceMin=" + std::to_string(gCfg.graceMin) + "\n";
     s += "filterMode=" + std::to_string(gCfg.filterMode) + "\n";
+    {
+        std::string hidden;
+        for (size_t i = 0; i < gCfg.hiddenEvents.size(); i++)
+        {
+            if (!hidden.empty()) hidden += ";";
+            hidden += gCfg.hiddenEvents[i];
+        }
+        s += "hiddenEvents=" + hidden + "\n";
+    }
     s += "prefix=" + gCfg.prefix + "\n";
     s += "refreshMin=" + std::to_string(gCfg.refreshMin) + "\n";
     s += "dataUrl=" + gCfg.dataUrl + "\n";
@@ -237,6 +247,20 @@ static void ApplySetting(const std::string& key, const std::string& val)
     else if (key == "btnH") gCfg.btnH = (float)atof(val.c_str());
     else if (key == "graceMin") gCfg.graceMin = atoi(val.c_str());
     else if (key == "filterMode") gCfg.filterMode = atoi(val.c_str());
+    else if (key == "hiddenEvents")
+    {
+        gCfg.hiddenEvents.clear();
+        size_t pos = 0;
+        while (pos <= val.size())
+        {
+            size_t next = val.find(';', pos);
+            if (next == std::string::npos) next = val.size();
+            std::string item = Trim(val.substr(pos, next - pos));
+            if (!item.empty()) gCfg.hiddenEvents.push_back(item);
+            if (next >= val.size()) break;
+            pos = next + 1;
+        }
+    }
     else if (key == "eventsPage" && !val.empty()) gCfg.eventsPage = val;
     else if (key == "prefix")
     {
@@ -799,6 +823,43 @@ static bool gLBtnPrev = false;
 static bool gRBtnPrev = false;
 static bool gMenuClosedThisFrame = false;
 
+static bool gRegionOpen = false;
+static ImVec2 gRegionPos(0, 0);
+static ImVec4 gRegionRect(0, 0, 0, 0);
+
+static bool EventHidden(const std::string& name)
+{
+    return std::find(gCfg.hiddenEvents.begin(), gCfg.hiddenEvents.end(), name) != gCfg.hiddenEvents.end();
+}
+
+static void SetEventHidden(const std::string& name, bool hidden)
+{
+    std::vector<std::string>::iterator it =
+        std::find(gCfg.hiddenEvents.begin(), gCfg.hiddenEvents.end(), name);
+    if (hidden)
+    {
+        if (it == gCfg.hiddenEvents.end()) gCfg.hiddenEvents.push_back(name);
+    }
+    else if (it != gCfg.hiddenEvents.end())
+    {
+        gCfg.hiddenEvents.erase(it);
+    }
+}
+
+static void OpenRegionMenu(ImVec2 at)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    const float w = 320.0f;
+    const float h = 430.0f;
+    if (at.x + w > io.DisplaySize.x) at.x = io.DisplaySize.x - w;
+    if (at.y + h > io.DisplaySize.y) at.y = io.DisplaySize.y - h;
+    if (at.x < 0.0f) at.x = 0.0f;
+    if (at.y < 0.0f) at.y = 0.0f;
+
+    gRegionPos = at;
+    gRegionOpen = true;
+}
+
 static void OpenChannelMenu(const std::string& message, ImVec2 at)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -886,6 +947,65 @@ static void DrawChannelMenu()
     ImVec2 p0 = ImGui::GetWindowPos();
     ImVec2 s0 = ImGui::GetWindowSize();
     gMenuRect = ImVec4(p0.x, p0.y, p0.x + s0.x, p0.y + s0.y);
+
+    ImGui::End();
+}
+
+static void DrawRegionMenu(const std::vector<bosstimer::EventEntry>& events)
+{
+    if (!gRegionOpen) return;
+
+    ImGui::SetNextWindowPos(gRegionPos, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.98f);
+    ImGui::Begin("##bt_regionmenu", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove);
+    ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+
+    ImGui::TextDisabled("区域筛选（勾选显示）");
+    ImGui::Separator();
+
+    if (ImGui::Button("全选"))
+    {
+        gCfg.hiddenEvents.clear();
+        SaveCfg();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("全不选"))
+    {
+        gCfg.hiddenEvents.clear();
+        for (size_t i = 0; i < events.size(); i++) gCfg.hiddenEvents.push_back(events[i].name);
+        SaveCfg();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("关闭")) gRegionOpen = false;
+
+    ImGui::BeginChild("##regions", ImVec2(300.0f, 330.0f), false);
+    std::string lastCat;
+    for (size_t i = 0; i < events.size(); i++)
+    {
+        std::string cat = bosstimer::StripHtml(events[i].category);
+        if (cat != lastCat)
+        {
+            if (!lastCat.empty()) ImGui::Spacing();
+            ImGui::TextDisabled("%s", cat.c_str());
+            lastCat = cat;
+        }
+        bool shown = !EventHidden(events[i].name);
+        if (ImGui::Checkbox(events[i].name.c_str(), &shown))
+        {
+            SetEventHidden(events[i].name, !shown);
+            SaveCfg();
+        }
+    }
+    ImGui::EndChild();
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) gRegionOpen = false;
+
+    ImVec2 p0 = ImGui::GetWindowPos();
+    ImVec2 s0 = ImGui::GetWindowSize();
+    gRegionRect = ImVec4(p0.x, p0.y, p0.x + s0.x, p0.y + s0.y);
 
     ImGui::End();
 }
@@ -1035,7 +1155,7 @@ static void DrawRow(const UiRow& row, int id, float btnAlpha)
         ImGui::EndTooltip();
     }
 
-    if (clicked && !gMenuOpen && !gMenuClosedThisFrame)
+    if (clicked && !gMenuOpen && !gRegionOpen && !gMenuClosedThisFrame)
     {
         QueueSend(row.message);
     }
@@ -1061,6 +1181,7 @@ void RenderMain()
     if (!gCfg.showPanel || (gCfg.autoHide && NexusLink && !NexusLink->IsGameplay))
     {
         gMenuOpen = false;
+        gRegionOpen = false;
         gHitRectsPrev.clear();
         return;
     }
@@ -1126,6 +1247,8 @@ void RenderMain()
     {
         for (size_t i = 0; i < events.size() && i < gEventSeqs.size(); i++)
         {
+            if (EventHidden(events[i].name)) continue;
+
             bosstimer::EventRow er;
             if (!bosstimer::BuildEventRow(events[i], gEventSeqs[i], nowUtcSec, tzMin, er)) continue;
 
@@ -1157,14 +1280,19 @@ void RenderMain()
     const bool rPressed = rDown && !gRBtnPrev;
     gRBtnPrev = rDown;
 
-    const bool mouseInMenu = gMenuOpen &&
+    const bool mouseInChannelMenu = gMenuOpen &&
         mp.x >= gMenuRect.x && mp.x <= gMenuRect.z &&
         mp.y >= gMenuRect.y && mp.y <= gMenuRect.w;
+    const bool mouseInRegionMenu = gRegionOpen &&
+        mp.x >= gRegionRect.x && mp.x <= gRegionRect.z &&
+        mp.y >= gRegionRect.y && mp.y <= gRegionRect.w;
+    const bool mouseInAnyMenu = mouseInChannelMenu || mouseInRegionMenu;
 
     // 菜单打开时点菜单外：关闭菜单；锁定位置时这一下继续穿透给游戏
-    if (gMenuOpen && (lPressed || rPressed) && !mouseInMenu)
+    if ((gMenuOpen || gRegionOpen) && (lPressed || rPressed) && !mouseInAnyMenu)
     {
         gMenuOpen = false;
+        gRegionOpen = false;
         gMenuClosedThisFrame = true;
     }
 
@@ -1237,7 +1365,12 @@ void RenderMain()
             if (ImGui::Button(filterNames[i]))
             {
                 gCfg.filterMode = i;
+                gRegionOpen = false;
                 SaveCfg();
+            }
+            if (i == 2 && ImGui::IsItemClicked(ImGuiMouseButton_Right))
+            {
+                OpenRegionMenu(ImGui::GetIO().MousePos);
             }
             if (active) ImGui::PopStyleColor();
             {
@@ -1276,10 +1409,13 @@ void RenderMain()
     ImGui::PopStyleColor(3);
 
     DrawChannelMenu();
+    DrawRegionMenu(events);
 
-    const bool mouseInMenuNow = gMenuOpen &&
-        mp.x >= gMenuRect.x && mp.x <= gMenuRect.z &&
-        mp.y >= gMenuRect.y && mp.y <= gMenuRect.w;
+    const bool mouseInMenuNow =
+        (gMenuOpen && mp.x >= gMenuRect.x && mp.x <= gMenuRect.z &&
+         mp.y >= gMenuRect.y && mp.y <= gMenuRect.w) ||
+        (gRegionOpen && mp.x >= gRegionRect.x && mp.x <= gRegionRect.z &&
+         mp.y >= gRegionRect.y && mp.y <= gRegionRect.w);
 
     bool overOtherWindow = false;
     {
@@ -1519,7 +1655,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 2;
+    AddonDef.Version.Revision = 3;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;
