@@ -1,31 +1,58 @@
-GW2 BOSS 计时器 v1.0.0（Nexus 插件）
-=====================================
-
+激战2 BOSS 计时器（Nexus 插件）
 作者：摸鱼哥
+========================================
+
+功能
+  - 读取星岬岛 BOSS 计时器的时刻表（24 个世界 BOSS），每 30 分钟自动更新
+  - 游戏内悬浮面板，每个 BOSS 一个按钮，点击发送一行信息：
+      淑雯  上次: 21:00下次: 23:00  巨龙尽头 [&BKIMAAA=]
+  - 排序：进行中的排最上面，其余按下次倒计时从近到远，每秒自动重排
+  - 状态与页面一致：开始前 15 分钟「即将开始」，开始后 15 分钟「进行中」
+  - 左键按默认频道发送；右键选择本次频道：
+      当前频道 / 地图 /m / 团队 /d / 队伍 /p / 战队 /t / 说 /s
+      / 当前公会 /g / 公会1-6 /g1-/g6，也可输入自定义频道
+  - 可调：面板透明度、按钮透明度、按钮颜色、文字颜色、按钮宽高
+  - 锁定位置后空白处鼠标穿透；可隐藏标题栏；选人等非游戏场景自动隐藏
+  - 显示 / 隐藏面板快捷键默认 F10（Nexus → 输入绑定 里可改）
 
 安装
-----
-1. 关闭游戏
-2. 把 addons\BossTimer.dll 复制到游戏的 addons 目录
-   （与 Gw2-64.exe 同级的 addons，不是 addons\BossTimer）
-3. 启动游戏，Nexus 插件列表里出现「BOSS计时器」即成功
+  前提：游戏已经装好 Nexus 插件管理工具（游戏根目录有 addonLoader.dll），
+        没有 Nexus 的话 GW2 根本不会加载 addons 里的 DLL。
 
-使用
-----
-- 面板默认显示，每个 BOSS 一个按钮，进行中的排最上面
-- 左键：按默认频道发送一行 BOSS 信息
-- 右键：选择本次发送的频道（含公会 /g、/g1-/g6，可自定义）
-- 鼠标悬停：预览将要发送的文本
-- F10：显示 / 隐藏面板；标题栏可拖动
-- 设置：Nexus -> 设置 -> BOSS计时器
+  最简单的做法：
+    双击「BOSS计时器安装-双击运行-需要游戏安装Nexus插件管理工具.bat」
+    → 选 1（安装 / 更新）
+    → 填游戏目录（放 Gw2-64.exe 的文件夹，例如 E:\Game\GuildWars2）
 
-配置与缓存
-----------
-addons\BossTimer\BossTimer.ini          配置文件
-addons\BossTimer\bossdata_cache.js      时刻表缓存
+  命令行方式：
+    powershell -ExecutionPolicy Bypass -File BOSS计时器安装.ps1 -Action 安装 -GameDir "E:\Game\GuildWars2"
+    powershell -ExecutionPolicy Bypass -File BOSS计时器安装.ps1 -Action 状态 -GameDir "E:\Game\GuildWars2"
+    powershell -ExecutionPolicy Bypass -File BOSS计时器安装.ps1 -Action 回退 -GameDir "E:\Game\GuildWars2"
 
-数据来源：星岬岛 BOSS 计时器页面（每 30 分钟自动抓取，断网用缓存）
+  说明：
+    - 安装只放 addons\BossTimer.dll，不会动你已有的配置
+    - 旧版本会先备份到 backups\ 目录
+    - 加 -DryRun 只预演，不改任何文件
+    - 插件正在使用时无法替换 DLL，脚本会提示先关游戏
 
 卸载
-----
-删除 addons\BossTimer.dll 和 addons\BossTimer 目录即可。
+  菜单选 2，或命令行加 -Action 回退；默认保留配置，
+  要连配置和缓存一起删加 -PurgeConfig。
+
+首次使用
+  进入游戏后出现「BOSS计时器」面板：
+    - 左键 BOSS 按钮：按默认频道发送（默认当前频道）
+    - 右键 BOSS 按钮：选择本次发送的频道
+    - 鼠标悬停：预览将要发送的整行文本
+    - F10：显示 / 隐藏面板
+  打开 Nexus → 设置 → BOSS计时器 可以改频道、刷新间隔、外观和排序规则。
+
+  配置文件位置：<游戏目录>\addons\BossTimer\BossTimer.ini
+  数据缓存位置：<游戏目录>\addons\BossTimer\bossdata_cache.js
+  首次运行没有网络时会使用内置时刻表，联网后自动更新。
+
+注意
+  - 国服客户端里模拟键盘输入会被拦，插件改用 Nexus 的 WndProc_SendToGameOnly 投递，
+    文字按 GBK 字节逐字写入，请不要改成 UTF-8（会乱码或闪退）
+  - Nexus 的输入框无法使用中文输入法，自定义频道请填英文 / 数字（如 d、g1）
+  - 时刻表是固定刷新时间，不含服务器实时状态；「进行中」按开始后 15 分钟计算

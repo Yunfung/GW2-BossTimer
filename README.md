@@ -19,13 +19,25 @@
 
 ## 安装
 
-前提：游戏已安装 [Nexus](https://github.com/RaidcoreGG) 插件管理工具（游戏根目录有 `addonLoader.dll`）。
+前提：游戏已安装 [Nexus](https://github.com/RaidcoreGG) 插件管理工具（游戏根目录有 `addonLoader.dll`），否则 GW2 不会加载 `addons` 里的 DLL。
 
 1. 关闭游戏
-2. 把 `release/addons/BossTimer.dll` 放到游戏的 `addons` 目录（与 `Gw2-64.exe` 同级的 `addons`）
-3. 启动游戏，插件列表里应出现「BOSS计时器」
+2. 双击 `release/BOSS计时器安装-双击运行-需要游戏安装Nexus插件管理工具.bat`
+3. 选 `1`（安装 / 更新）
+4. 填游戏目录（放 `Gw2-64.exe` 的文件夹，例如 `E:\Game\GuildWars2`）
 
-插件会自动创建 `addons\BossTimer\` 目录，用于保存配置和缓存，不影响游戏本体文件。
+命令行方式：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File release\BOSS计时器安装.ps1 -Action 安装 -GameDir "E:\Game\GuildWars2"
+powershell -ExecutionPolicy Bypass -File release\BOSS计时器安装.ps1 -Action 状态 -GameDir "E:\Game\GuildWars2"
+powershell -ExecutionPolicy Bypass -File release\BOSS计时器安装.ps1 -Action 回退 -GameDir "E:\Game\GuildWars2"
+```
+
+- 安装只放 `addons\BossTimer.dll`，不动已有配置；旧版本会备份到脚本旁的 `backups\`
+- 加 `-DryRun` 只预演，不改文件
+- 卸载默认保留配置，要一起删加 `-PurgeConfig`
+- 也可以手动把 `release/addons/BossTimer.dll` 复制到游戏的 `addons` 目录
 
 ## 使用
 
