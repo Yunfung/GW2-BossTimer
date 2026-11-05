@@ -977,6 +977,18 @@ struct DailyList
     std::vector<std::string> lines;
 };
 
+// 列表整合成一行发送，避免刷屏
+inline std::string DailyListLine(const DailyList& list)
+{
+    std::string out = list.name + "：";
+    for (size_t i = 0; i < list.lines.size(); i++)
+    {
+        if (i > 0) out += " / ";
+        out += list.lines[i];
+    }
+    return out;
+}
+
 inline std::string DecodeEntities(const std::string& s)
 {
     std::string out;

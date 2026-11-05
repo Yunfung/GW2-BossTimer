@@ -1386,16 +1386,13 @@ void RenderMain()
         for (size_t i = 0; i < dailyLists.size(); i++)
         {
             const bosstimer::DailyList& list = dailyLists[i];
+            std::string oneLine = bosstimer::DailyListLine(list);
 
             UiRow u;
             u.name = list.name;
-            u.sub = "点击发送 " + std::to_string(list.lines.size()) + " 条";
-            u.lines = list.lines;
-            for (size_t k = 0; k < list.lines.size(); k++)
-            {
-                if (k > 0) u.message += "\n";
-                u.message += list.lines[k];
-            }
+            u.sub = oneLine;
+            u.message = oneLine;
+            u.lines.push_back(oneLine);
             u.key = 1000 + (long long)i;
             rows.push_back(u);
         }
@@ -1857,7 +1854,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 5;
+    AddonDef.Version.Revision = 6;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;
