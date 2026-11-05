@@ -1193,7 +1193,7 @@ inline bool ParseDailyHtml(const std::string& html, std::vector<DailyItem>& item
 
     // 日常大型地下城赏金 / 碎层
     const char* cardIds[2] = { "dailycard_daily_Raid", "dailycard_daily_fractal" };
-    const char* cardNames[2] = { "日常大型地下城赏金", "碎层" };
+    const char* cardNames[2] = { "日常大型地下城赏金", "日常碎层" };
     for (int c = 0; c < 2; c++)
     {
         std::string marker = std::string("id=\"") + cardIds[c] + "\"";

@@ -281,7 +281,7 @@ int main(int argc, char** argv)
             printf("      列表 %s：%d 条 -> %s\n", lists[i].name.c_str(),
                 (int)lists[i].lines.size(), oneLine.c_str());
             Check(!lists[i].lines.empty(), "日常列表非空");
-            Check(lists[i].name == "日常大型地下城赏金" || lists[i].name == "碎层", "列表名称正确");
+            Check(lists[i].name == "日常大型地下城赏金" || lists[i].name == "日常碎层", "列表名称正确");
             Check(oneLine.find(lists[i].name) == 0, "整合行以列表名开头");
             Check(oneLine.size() < 199, "整合成一行后长度安全");
         }
