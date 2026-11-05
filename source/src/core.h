@@ -879,26 +879,46 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     if (seq.empty()) return false;
 
     const double pos = nowUtcSec / 60.0;
-    int cur = -1;
+
+    // 只把有名字的阶段当作“事件”，空阶段是过渡/间隔，
+    // 不能拿它的开始（= 上一个事件的结束）当上次/下次时间。
+    std::vector<int> named;
     for (size_t i = 0; i < seq.size(); i++)
     {
-        if (seq[i].s <= pos && pos < seq[i].e) { cur = (int)i; break; }
+        std::map<int, EventSegment>::const_iterator it = entry.segments.find(seq[i].r);
+        if (it != entry.segments.end() && !it->second.name.empty()) named.push_back((int)i);
     }
-    if (cur < 0)
+    if (named.empty())
     {
-        for (int i = (int)seq.size() - 1; i >= 0; i--)
-        {
-            if (seq[i].s <= pos) { cur = i; break; }
-        }
-        if (cur < 0) cur = 0;
+        for (size_t i = 0; i < seq.size(); i++) named.push_back((int)i);
     }
 
-    int nxt = cur + 1;
-    int dayAdd = 0;
-    if (nxt >= (int)seq.size())
+    int cur = -1;
+    for (size_t k = 0; k < named.size(); k++)
     {
-        nxt = 0;
-        dayAdd = 1440;
+        if (seq[(size_t)named[k]].s <= pos) cur = named[k];
+        else break;
+    }
+
+    int nxt = -1;
+    int dayAdd = 0;
+    if (cur < 0)
+    {
+        // 还不到今天第一个事件：上次算昨天最后一个
+        cur = named.back();
+        nxt = named.front();
+    }
+    else
+    {
+        for (size_t k = 0; k < named.size(); k++)
+        {
+            if (seq[(size_t)named[k]].s > seq[(size_t)cur].s) { nxt = named[k]; break; }
+        }
+        if (nxt < 0)
+        {
+            nxt = named.front();
+            dayAdd = 1440;
+        }
     }
 
     double seconds = ((seq[(size_t)nxt].s + dayAdd) - pos) * 60.0;

@@ -216,6 +216,28 @@ int main(int argc, char** argv)
             Check(er.lastLocalMin == 20 * 60 && er.nextLocalMin == 20 * 60 + 15,
                 "世界BOSS 北京时间 20:00 / 20:15");
         }
+
+        // 跳过空阶段：四风节在 00:05 UTC 处于“寻宝开始”(0-10)，下一个有名阶段是 00:30 的“准备”
+        for (size_t i = 0; i < ev.size(); i++)
+        {
+            if (ev[i].name != "四风节-迷城峭壁") continue;
+            std::vector<bosstimer::SeqSeg> seq;
+            bosstimer::BuildEventSequence(ev[i], 0, 0, seq);
+
+            bosstimer::EventRow er;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 5 * 60, 480, er), "四风节 00:05 可计算");
+            printf("      00:05 UTC 四风节：%s\n", er.message.c_str());
+            Check(er.lastLocalMin == 8 * 60, "上次是当前事件开始 08:00");
+            Check(er.nextLocalMin == 8 * 60 + 30, "下次跳过空阶段，取下一个事件开始 08:30");
+            Check(er.countdown == "25分", "倒计时 25 分（到事件开始，不是阶段结束）");
+
+            bosstimer::EventRow er2;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 12 * 60, 480, er2), "四风节 00:12 可计算");
+            printf("      00:12 UTC 四风节（空阶段中）：%s\n", er2.message.c_str());
+            Check(er2.lastLocalMin == 8 * 60, "空阶段中上次仍是上一个事件开始 08:00");
+            Check(er2.nextLocalMin == 8 * 60 + 30, "空阶段中下次仍是 08:30");
+            Check(er2.countdown == "18分", "空阶段倒计时 18 分");
+        }
     }
 
     printf(gFail == 0 ? "\nALL PASSED\n" : "\nFAILED (%d)\n", gFail);

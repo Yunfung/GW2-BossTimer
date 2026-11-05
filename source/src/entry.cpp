@@ -982,23 +982,67 @@ static void DrawRegionMenu(const std::vector<bosstimer::EventEntry>& events)
     if (ImGui::Button("关闭")) gRegionOpen = false;
 
     ImGui::BeginChild("##regions", ImVec2(300.0f, 330.0f), false);
-    std::string lastCat;
+
+    struct RegionGroup
+    {
+        std::string category;
+        std::vector<int> items;
+    };
+    std::vector<RegionGroup> groups;
     for (size_t i = 0; i < events.size(); i++)
     {
         std::string cat = bosstimer::StripHtml(events[i].category);
-        if (cat != lastCat)
+        size_t g = 0;
+        for (; g < groups.size(); g++)
         {
-            if (!lastCat.empty()) ImGui::Spacing();
-            ImGui::TextDisabled("%s", cat.c_str());
-            lastCat = cat;
+            if (groups[g].category == cat) break;
         }
-        bool shown = !EventHidden(events[i].name);
-        if (ImGui::Checkbox(events[i].name.c_str(), &shown))
+        if (g >= groups.size())
         {
-            SetEventHidden(events[i].name, !shown);
+            RegionGroup ng;
+            ng.category = cat;
+            groups.push_back(ng);
+        }
+        groups[g].items.push_back((int)i);
+    }
+
+    for (size_t g = 0; g < groups.size(); g++)
+    {
+        RegionGroup& group = groups[g];
+        if (g > 0) ImGui::Spacing();
+
+        int visible = 0;
+        for (size_t k = 0; k < group.items.size(); k++)
+        {
+            if (!EventHidden(events[(size_t)group.items[k]].name)) visible++;
+        }
+        bool allShown = (visible == (int)group.items.size());
+
+        ImGui::PushID(group.category.c_str());
+        if (ImGui::Checkbox("##group", &allShown))
+        {
+            for (size_t k = 0; k < group.items.size(); k++)
+                SetEventHidden(events[(size_t)group.items[k]].name, !allShown);
             SaveCfg();
         }
+        ImGui::PopID();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s（%d/%d）", group.category.c_str(), visible, (int)group.items.size());
+
+        ImGui::Indent(18.0f);
+        for (size_t k = 0; k < group.items.size(); k++)
+        {
+            const std::string& name = events[(size_t)group.items[k]].name;
+            bool shown = !EventHidden(name);
+            if (ImGui::Checkbox(name.c_str(), &shown))
+            {
+                SetEventHidden(name, !shown);
+                SaveCfg();
+            }
+        }
+        ImGui::Unindent(18.0f);
     }
+
     ImGui::EndChild();
 
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) gRegionOpen = false;
@@ -1655,7 +1699,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 3;
+    AddonDef.Version.Revision = 4;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;
