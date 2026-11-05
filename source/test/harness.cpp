@@ -185,6 +185,39 @@ int main(int argc, char** argv)
     printf("      最长一行（UTF-8 字节）：%d\n", (int)maxLen);
     Check(maxLen < 199, "一行文本长度安全");
 
+    // 事件时间表（可选：第二个参数是 gw2timer_new_data_*.js）
+    if (argc > 2)
+    {
+        std::ifstream in2(argv[2], std::ios::binary);
+        std::string t2((std::istreambuf_iterator<char>(in2)), std::istreambuf_iterator<char>());
+        std::vector<bosstimer::EventEntry> ev;
+        std::string e3;
+        Check(bosstimer::ParseEventData(t2, ev, &e3), "事件时间表可解析");
+        printf("      事件条目：%d\n", (int)ev.size());
+        if (!e3.empty()) printf("      解析错误：%s\n", e3.c_str());
+        Check(ev.size() == 45, "事件条目 45 个");
+
+        int withSeg = 0;
+        for (size_t i = 0; i < ev.size(); i++)
+            if (!ev[i].segments.empty()) withSeg++;
+        Check(withSeg == (int)ev.size(), "每个事件都有阶段");
+
+        for (size_t i = 0; i < ev.size(); i++)
+        {
+            if (ev[i].name != "世界BOSS") continue;
+            std::vector<bosstimer::SeqSeg> seq;
+            bosstimer::BuildEventSequence(ev[i], 0, 0, seq);
+            bosstimer::EventRow er;
+            bool ok = bosstimer::BuildEventRow(ev[i], seq, 12 * 3600, 480, er);
+            Check(ok, "世界BOSS 12:00 UTC 可计算");
+            printf("      12:00 UTC / 20:00 北京：%s\n", er.message.c_str());
+            printf("      倒计时：%s\n", er.countdown.c_str());
+            Check(er.countdown == "15分", "世界BOSS 倒计时 15 分");
+            Check(er.lastLocalMin == 20 * 60 && er.nextLocalMin == 20 * 60 + 15,
+                "世界BOSS 北京时间 20:00 / 20:15");
+        }
+    }
+
     printf(gFail == 0 ? "\nALL PASSED\n" : "\nFAILED (%d)\n", gFail);
     return gFail == 0 ? 0 : 1;
 }

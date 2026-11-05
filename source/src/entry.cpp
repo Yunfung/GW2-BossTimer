@@ -64,9 +64,11 @@ struct Config
     float btnW = 0.0f;
     float btnH = 0.0f;
     int graceMin = 15;
+    int filterMode = 0; // 0=全部 1=BOSS 2=事件
     std::string prefix = ""; // 空 = 发送到当前频道
     int refreshMin = 30;
     std::string dataUrl = "https://gw2.wishingstarmoye.com/la-assets/gw2timer/data/timerbox_bossdata.js";
+    std::string eventsPage = "https://gw2.wishingstarmoye.com/gw2timer";
     int openDelay = 180;
     int charGap = 2;
     int sendMode = 0;
@@ -77,6 +79,7 @@ static Config gCfg;
 static std::mutex gCfgMx;
 static std::string gCfgPath;
 static std::string gCachePath;
+static std::string gEventCachePath;
 static std::string gAddonDir;
 
 struct ChannelPreset
@@ -186,6 +189,7 @@ static void InitPaths()
     MakeDirUtf8(gAddonDir);
     gCfgPath = gAddonDir + "\\BossTimer.ini";
     gCachePath = gAddonDir + "\\bossdata_cache.js";
+    gEventCachePath = gAddonDir + "\\eventdata_cache.js";
 }
 
 static void SaveCfg()
@@ -206,9 +210,11 @@ static void SaveCfg()
     snprintf(buf, sizeof(buf), "textColor=%.4f,%.4f,%.4f\n", gCfg.textColor[0], gCfg.textColor[1], gCfg.textColor[2]); s += buf;
     snprintf(buf, sizeof(buf), "btnW=%.1f\nbtnH=%.1f\n", gCfg.btnW, gCfg.btnH); s += buf;
     s += "graceMin=" + std::to_string(gCfg.graceMin) + "\n";
+    s += "filterMode=" + std::to_string(gCfg.filterMode) + "\n";
     s += "prefix=" + gCfg.prefix + "\n";
     s += "refreshMin=" + std::to_string(gCfg.refreshMin) + "\n";
     s += "dataUrl=" + gCfg.dataUrl + "\n";
+    s += "eventsPage=" + gCfg.eventsPage + "\n";
     s += "openDelay=" + std::to_string(gCfg.openDelay) + "\n";
     s += "charGap=" + std::to_string(gCfg.charGap) + "\n";
     s += "sendMode=" + std::to_string(gCfg.sendMode) + "\n";
@@ -230,6 +236,8 @@ static void ApplySetting(const std::string& key, const std::string& val)
     else if (key == "btnW") gCfg.btnW = (float)atof(val.c_str());
     else if (key == "btnH") gCfg.btnH = (float)atof(val.c_str());
     else if (key == "graceMin") gCfg.graceMin = atoi(val.c_str());
+    else if (key == "filterMode") gCfg.filterMode = atoi(val.c_str());
+    else if (key == "eventsPage" && !val.empty()) gCfg.eventsPage = val;
     else if (key == "prefix")
     {
         gCfg.prefix = val;
@@ -280,6 +288,7 @@ static void LoadCfg()
     if (gCfg.refreshMin < 5) gCfg.refreshMin = 5;
     if (gCfg.graceMin < 0) gCfg.graceMin = 0;
     if (gCfg.graceMin > 120) gCfg.graceMin = 120;
+    if (gCfg.filterMode < 0 || gCfg.filterMode > 2) gCfg.filterMode = 0;
 }
 
 ///----------------------------------------------------------------------------------------------------
@@ -390,9 +399,14 @@ static bool HttpGetText(const std::wstring& wurl, std::string& out, std::string&
 #include <chrono>
 
 static std::vector<bosstimer::BossData> gBosses;
+static std::vector<bosstimer::EventEntry> gEvents;
 static std::mutex gBossMx;
+static std::atomic<int> gBossVer(0);
+static std::atomic<int> gEventVer(0);
 static std::string gSource = "内置";
 static std::string gUpdatedText = "未更新";
+static std::string gEventSource = "未加载";
+static std::string gEventUpdatedText;
 static std::string gLastError;
 static std::atomic<bool> gFetching(false);
 static std::atomic<bool> gStop(false);
@@ -412,19 +426,97 @@ static void RequestRefresh()
     gWakeCv.notify_all();
 }
 
-static void MarkUpdated(const char* source)
+static std::string ClockText()
 {
     SYSTEMTIME st = {};
     GetLocalTime(&st);
     char buf[64];
     snprintf(buf, sizeof(buf), "%02d:%02d 更新", st.wHour, st.wMinute);
+    return buf;
+}
+
+static void MarkUpdated(const char* source)
+{
     gSource = source;
-    gUpdatedText = buf;
+    gUpdatedText = ClockText();
+}
+
+static void MarkEventUpdated(const char* source)
+{
+    gEventSource = source;
+    gEventUpdatedText = ClockText();
+}
+
+// 页面里引用的数据文件名带日期版本，从 HTML 里找当前地址
+static std::string FindEventDataUrl(const std::string& html)
+{
+    const char* key = "gw2timer_new_data_";
+    size_t p = html.find(key);
+    if (p == std::string::npos) return std::string();
+
+    size_t start = html.rfind("http", p);
+    size_t end = html.find(".js", p);
+    if (start == std::string::npos || end == std::string::npos || start > p) return std::string();
+    end += 3;
+    return html.substr(start, end - start);
+}
+
+static void FetchEvents(std::string& errors)
+{
+    std::string pageUrl;
+    {
+        std::lock_guard<std::mutex> lock(gCfgMx);
+        pageUrl = gCfg.eventsPage;
+    }
+
+    std::string html;
+    std::string err;
+    if (!HttpGetText(Utf8ToWide(pageUrl), html, err))
+    {
+        errors += "事件页面抓取失败：" + err + "\n";
+        return;
+    }
+
+    std::string dataUrl = FindEventDataUrl(html);
+    if (dataUrl.empty())
+    {
+        errors += "事件页面里找不到数据文件\n";
+        return;
+    }
+
+    std::string body;
+    if (!HttpGetText(Utf8ToWide(dataUrl), body, err))
+    {
+        errors += "事件数据抓取失败：" + err + "\n";
+        return;
+    }
+
+    std::vector<bosstimer::EventEntry> parsed;
+    std::string perr;
+    if (!bosstimer::ParseEventData(body, parsed, &perr))
+    {
+        errors += "事件数据解析失败：" + perr + "\n";
+        return;
+    }
+
+    int count = (int)parsed.size();
+    {
+        std::lock_guard<std::mutex> lock(gBossMx);
+        gEvents.swap(parsed); gEventVer++;
+    }
+    WriteFileUtf8(gEventCachePath, body);
+    MarkEventUpdated("网络");
+
+    char buf[96];
+    snprintf(buf, sizeof(buf), "事件时间表抓取成功：%d 项", count);
+    LogInfo(buf);
 }
 
 static void FetchOnce()
 {
     if (gFetching.exchange(true)) return;
+
+    std::string errors;
 
     std::string url;
     {
@@ -451,11 +543,10 @@ static void FetchOnce()
     {
         {
             std::lock_guard<std::mutex> lock(gBossMx);
-            gBosses.swap(parsed);
+            gBosses.swap(parsed); gBossVer++;
         }
         WriteFileUtf8(gCachePath, body);
         MarkUpdated("网络");
-        gLastError.clear();
 
         char buf[128];
         snprintf(buf, sizeof(buf), "抓取成功：%d 条 BOSS 数据", (int)gBosses.size());
@@ -463,10 +554,12 @@ static void FetchOnce()
     }
     else
     {
-        gLastError = "抓取失败：" + err;
-        LogInfo(gLastError);
+        errors += "BOSS 抓取失败：" + err + "\n";
     }
 
+    FetchEvents(errors);
+
+    gLastError = Trim(errors);
     gFetching = false;
 }
 
@@ -504,7 +597,7 @@ static void InitData()
     if (ReadFileUtf8(gCachePath, body) && bosstimer::ParseBossData(body, parsed, &perr))
     {
         std::lock_guard<std::mutex> lock(gBossMx);
-        gBosses.swap(parsed);
+        gBosses.swap(parsed); gBossVer++;
         MarkUpdated("缓存");
         return;
     }
@@ -512,9 +605,19 @@ static void InitData()
     if (bosstimer::ParseBossData(kDefaultData, parsed, &perr))
     {
         std::lock_guard<std::mutex> lock(gBossMx);
-        gBosses.swap(parsed);
+        gBosses.swap(parsed); gBossVer++;
         gSource = "内置";
         gUpdatedText = "首次运行";
+    }
+
+    std::string ebody;
+    std::vector<bosstimer::EventEntry> events;
+    std::string eerr;
+    if (ReadFileUtf8(gEventCachePath, ebody) && bosstimer::ParseEventData(ebody, events, &eerr))
+    {
+        std::lock_guard<std::mutex> lock(gBossMx);
+        gEvents.swap(events); gEventVer++;
+        MarkEventUpdated("缓存");
     }
 }
 
@@ -787,10 +890,71 @@ static void DrawChannelMenu()
     ImGui::End();
 }
 
-static void DrawBossRow(const bosstimer::BossRow& row, const bosstimer::BossData& boss,
-                        int nowSec, float btnAlpha)
+struct UiRow
 {
-    ImGui::PushID(row.bossIndex);
+    std::string name;
+    std::string sub;
+    std::string countdown;
+    std::string message;
+    bool ongoing = false;
+    bool soon = false;
+    long long key = 0;
+    bool isEvent = false;
+};
+
+static std::vector<std::vector<bosstimer::SeqSeg>> gEventSeqs;
+static int gSeqLocalDay = -1;
+static int gSeqUtcDay = -1;
+
+static int ZeghaiOffset(const SYSTEMTIME& ut)
+{
+    SYSTEMTIME start = {};
+    start.wYear = 2018;
+    start.wMonth = 5;
+    start.wDay = 10;
+
+    SYSTEMTIME stop = ut;
+    stop.wHour = 0;
+    stop.wMinute = 15;
+    stop.wSecond = 0;
+    stop.wMilliseconds = 0;
+
+    FILETIME f1 = {}, f2 = {};
+    if (!SystemTimeToFileTime(&start, &f1) || !SystemTimeToFileTime(&stop, &f2)) return 0;
+
+    ULARGE_INTEGER u1 = {}, u2 = {};
+    u1.LowPart = f1.dwLowDateTime;
+    u1.HighPart = f1.dwHighDateTime;
+    u2.LowPart = f2.dwLowDateTime;
+    u2.HighPart = f2.dwHighDateTime;
+
+    long long hours = ((long long)u2.QuadPart - (long long)u1.QuadPart) / 36000000LL;
+    if (hours < 0) hours = -hours;
+    return (int)(hours / 2) * 2;
+}
+
+// 事件时刻表按天生成：星期决定约科防守的表格，UTC 日期决定迷雾商人的路线
+static void EnsureEventSeqs(const std::vector<bosstimer::EventEntry>& events,
+                            const SYSTEMTIME& lt, const SYSTEMTIME& ut)
+{
+    int ld = lt.wYear * 10000 + lt.wMonth * 100 + lt.wDay;
+    int ud = ut.wYear * 10000 + ut.wMonth * 100 + ut.wDay;
+    if (ld == gSeqLocalDay && ud == gSeqUtcDay && gEventSeqs.size() == events.size()) return;
+
+    int weekdayMon0 = (lt.wDayOfWeek + 6) % 7; // 周日=6，周一=0
+    int zoff = ZeghaiOffset(ut);
+
+    gEventSeqs.assign(events.size(), std::vector<bosstimer::SeqSeg>());
+    for (size_t i = 0; i < events.size(); i++)
+        bosstimer::BuildEventSequence(events[i], weekdayMon0, zoff, gEventSeqs[i]);
+
+    gSeqLocalDay = ld;
+    gSeqUtcDay = ud;
+}
+
+static void DrawRow(const UiRow& row, int id, float btnAlpha)
+{
+    ImGui::PushID(id);
 
     const ImGuiStyle& style = ImGui::GetStyle();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -844,28 +1008,21 @@ static void DrawBossRow(const bosstimer::BossRow& row, const bosstimer::BossData
         : ImGui::GetStyleColorVec4(ImGuiCol_Text));
     ImU32 subCol = ImGui::GetColorU32(ImGuiCol_TextDisabled);
 
-    const int secondsToNext = row.nextSec - nowSec;
-    const bool soon = !row.ongoing && secondsToNext <= 15 * 60;
     ImU32 cdCol = mainCol;
     if (row.ongoing) cdCol = subCol;
-    else if (soon) cdCol = ImGui::GetColorU32(ImVec4(1.0f, 0.72f, 0.24f, 1.0f));
+    else if (row.soon) cdCol = ImGui::GetColorU32(ImVec4(1.0f, 0.72f, 0.24f, 1.0f));
 
     std::string cdText = row.countdown;
-    if (soon) cdText = "即将 " + cdText;
+    if (row.soon) cdText = "即将 " + cdText;
 
     float nameY = p.y + padY;
-    dl->AddText(ImVec2(p.x + padX, nameY), mainCol, boss.name.c_str());
+    dl->AddText(ImVec2(p.x + padX, nameY), mainCol, row.name.c_str());
 
-    const char* cd = row.countdown.c_str();
+    const char* cd = cdText.c_str();
     float cdW = ImGui::CalcTextSize(cd).x;
     dl->AddText(ImVec2(b.x - padX - cdW, nameY), cdCol, cd);
 
-    char sub[160];
-    snprintf(sub, sizeof(sub), "上次 %s · 下次 %s · %s",
-        bosstimer::FormatHm(row.lastSec).c_str(),
-        bosstimer::FormatHm(row.nextSec).c_str(),
-        boss.map.c_str());
-    dl->AddText(ImVec2(p.x + padX, p.y + padY + lineH), subCol, sub);
+    dl->AddText(ImVec2(p.x + padX, p.y + padY + lineH), subCol, row.sub.c_str());
 
     if (hovered)
     {
@@ -908,18 +1065,87 @@ void RenderMain()
         return;
     }
 
-    std::vector<bosstimer::BossData> bosses;
+    static std::vector<bosstimer::BossData> cachedBosses;
+    static std::vector<bosstimer::EventEntry> cachedEvents;
+    static int cachedBossVer = -1;
+    static int cachedEventVer = -1;
+
+    if (cachedBossVer != gBossVer.load() || cachedEventVer != gEventVer.load())
     {
         std::lock_guard<std::mutex> lock(gBossMx);
-        bosses = gBosses;
+        cachedBosses = gBosses;
+        cachedEvents = gEvents;
+        cachedBossVer = gBossVer.load();
+        cachedEventVer = gEventVer.load();
     }
 
-    SYSTEMTIME st = {};
-    GetLocalTime(&st);
-    const int nowSec = st.wHour * 3600 + st.wMinute * 60 + st.wSecond;
+    const std::vector<bosstimer::BossData>& bosses = cachedBosses;
+    const std::vector<bosstimer::EventEntry>& events = cachedEvents;
 
-    std::vector<bosstimer::BossRow> rows;
-    bosstimer::BuildRows(bosses, nowSec, gCfg.graceMin, rows);
+    SYSTEMTIME lt = {};
+    SYSTEMTIME ut = {};
+    GetLocalTime(&lt);
+    GetSystemTime(&ut);
+
+    const int nowSec = lt.wHour * 3600 + lt.wMinute * 60 + lt.wSecond;
+    const int nowUtcSec = ut.wHour * 3600 + ut.wMinute * 60 + ut.wSecond;
+
+    int tzMin = (lt.wHour * 60 + lt.wMinute) - (ut.wHour * 60 + ut.wMinute);
+    if (tzMin < -720) tzMin += 1440;
+    if (tzMin > 720) tzMin -= 1440;
+
+    EnsureEventSeqs(events, lt, ut);
+
+    std::vector<UiRow> rows;
+
+    if (gCfg.filterMode != 2)
+    {
+        std::vector<bosstimer::BossRow> bossRows;
+        bosstimer::BuildRows(bosses, nowSec, gCfg.graceMin, bossRows);
+
+        for (size_t i = 0; i < bossRows.size(); i++)
+        {
+            const bosstimer::BossRow& br = bossRows[i];
+            if (br.bossIndex < 0 || br.bossIndex >= (int)bosses.size()) continue;
+            const bosstimer::BossData& bd = bosses[(size_t)br.bossIndex];
+
+            UiRow u;
+            u.name = bd.name;
+            u.sub = "上次 " + bosstimer::FormatHm(br.lastSec) + " · 下次 " +
+                    bosstimer::FormatHm(br.nextSec) + " · " + bd.map;
+            u.countdown = br.countdown;
+            u.message = br.message;
+            u.ongoing = br.ongoing;
+            u.soon = !br.ongoing && (br.nextSec - nowSec) <= 15 * 60;
+            u.key = br.sortKey;
+            rows.push_back(u);
+        }
+    }
+
+    if (gCfg.filterMode != 1)
+    {
+        for (size_t i = 0; i < events.size() && i < gEventSeqs.size(); i++)
+        {
+            bosstimer::EventRow er;
+            if (!bosstimer::BuildEventRow(events[i], gEventSeqs[i], nowUtcSec, tzMin, er)) continue;
+
+            UiRow u;
+            u.name = events[i].name;
+            u.sub = "上次 " + bosstimer::FormatHm(er.lastLocalMin * 60) + " · 下次 " +
+                    bosstimer::FormatHm(er.nextLocalMin * 60);
+            if (!er.label.empty()) u.sub += " · " + er.label;
+            u.countdown = er.countdown;
+            u.message = er.message;
+            u.ongoing = false;
+            u.soon = er.secondsToNext <= 15 * 60;
+            u.key = er.secondsToNext;
+            u.isEvent = true;
+            rows.push_back(u);
+        }
+    }
+
+    std::stable_sort(rows.begin(), rows.end(),
+        [](const UiRow& a, const UiRow& b) { return a.key < b.key; });
 
     ImVec2 mp = ImGui::GetIO().MousePos;
 
@@ -990,9 +1216,7 @@ void RenderMain()
             if (pad > 0.0f) ImGui::Dummy(ImVec2(0, pad));
         }
 
-        ImGui::TextDisabled("%d 项", (int)rows.size());
-        ImGui::SameLine();
-        ImGui::TextDisabled("· %s · %s", gSource.c_str(), gUpdatedText.c_str());
+        ImGui::TextDisabled("BOSS %d · 事件 %d", (int)bosses.size(), (int)events.size());
 
         const char* btnLabel = gFetching.load() ? "抓取中" : "刷新";
         float btnW = ImGui::CalcTextSize(btnLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -1004,6 +1228,25 @@ void RenderMain()
             gHitRects.push_back(ImVec4(a.x, a.y, b.x, b.y));
         }
 
+        const char* filterNames[3] = { "全部", "BOSS", "事件" };
+        for (int i = 0; i < 3; i++)
+        {
+            if (i > 0) ImGui::SameLine();
+            bool active = (gCfg.filterMode == i);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.95f, 0.62f, 0.15f, 1.0f));
+            if (ImGui::Button(filterNames[i]))
+            {
+                gCfg.filterMode = i;
+                SaveCfg();
+            }
+            if (active) ImGui::PopStyleColor();
+            {
+                ImVec2 a = ImGui::GetItemRectMin();
+                ImVec2 b = ImGui::GetItemRectMax();
+                gHitRects.push_back(ImVec4(a.x, a.y, b.x, b.y));
+            }
+        }
+
         float statusH = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
         ImGui::BeginChild("##rows", ImVec2(0, -statusH), false);
 
@@ -1013,9 +1256,7 @@ void RenderMain()
         }
         for (size_t i = 0; i < rows.size(); i++)
         {
-            const bosstimer::BossRow& row = rows[i];
-            if (row.bossIndex < 0 || row.bossIndex >= (int)bosses.size()) continue;
-            DrawBossRow(row, bosses[(size_t)row.bossIndex], nowSec, btnAlpha);
+            DrawRow(rows[i], (int)i, btnAlpha);
         }
 
         ImGui::EndChild();
@@ -1098,10 +1339,19 @@ void RenderOptions()
     {
         char urlBuf[512];
         snprintf(urlBuf, sizeof(urlBuf), "%s", gCfg.dataUrl.c_str());
-        if (ImGui::InputText("数据地址", urlBuf, sizeof(urlBuf)))
+        if (ImGui::InputText("BOSS 数据地址", urlBuf, sizeof(urlBuf)))
         {
             std::lock_guard<std::mutex> lock(gCfgMx);
             gCfg.dataUrl = Trim(urlBuf);
+            changed = true;
+        }
+
+        char pageBuf[512];
+        snprintf(pageBuf, sizeof(pageBuf), "%s", gCfg.eventsPage.c_str());
+        if (ImGui::InputText("事件页面地址", pageBuf, sizeof(pageBuf)))
+        {
+            std::lock_guard<std::mutex> lock(gCfgMx);
+            gCfg.eventsPage = Trim(pageBuf);
             changed = true;
         }
 
@@ -1109,18 +1359,24 @@ void RenderOptions()
 
         if (ImGui::Button("立即刷新")) RequestRefresh();
         ImGui::SameLine();
+        if (gFetching.load()) ImGui::TextDisabled("抓取中…");
+        else ImGui::TextDisabled("会同时更新 BOSS 与事件数据");
 
-        size_t count = 0;
+        size_t bossCount = 0;
+        size_t eventCount = 0;
         {
             std::lock_guard<std::mutex> lock(gBossMx);
-            count = gBosses.size();
+            bossCount = gBosses.size();
+            eventCount = gEvents.size();
         }
-        ImGui::TextDisabled("%s · %s · 共 %d 项", gSource.c_str(), gUpdatedText.c_str(), (int)count);
+        ImGui::TextDisabled("BOSS：%s · %s · 共 %d 项", gSource.c_str(), gUpdatedText.c_str(), (int)bossCount);
+        ImGui::TextDisabled("事件：%s · %s · 共 %d 项", gEventSource.c_str(),
+            gEventUpdatedText.empty() ? "未更新" : gEventUpdatedText.c_str(), (int)eventCount);
 
         if (!gLastError.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1.0f), "%s", gLastError.c_str());
 
-        ImGui::TextDisabled("数据来自星岬岛 BOSS 计时器页面，抓取成功后会缓存到插件目录。");
+        ImGui::TextDisabled("数据来自星岬岛 BOSS 计时器与事件时间表，抓取成功后会缓存到插件目录。");
     }
 
     if (ImGui::CollapsingHeader("面板", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1263,7 +1519,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 1;
+    AddonDef.Version.Revision = 2;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;
