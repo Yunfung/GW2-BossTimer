@@ -240,6 +240,49 @@ int main(int argc, char** argv)
         }
     }
 
+    // 日常采集（可选：第三个参数是 daily 页面 HTML）
+    if (argc > 3)
+    {
+        std::ifstream in3(argv[3], std::ios::binary);
+        std::string html((std::istreambuf_iterator<char>(in3)), std::istreambuf_iterator<char>());
+
+        std::vector<bosstimer::DailyItem> items;
+        std::vector<bosstimer::DailyList> lists;
+        std::string derr;
+        Check(bosstimer::ParseDailyHtml(html, items, lists, &derr), "日常页面可解析");
+        printf("      日常按钮：%d 个，列表：%d 个\n", (int)items.size(), (int)lists.size());
+        if (!derr.empty()) printf("      解析错误：%s\n", derr.c_str());
+
+        const char* wanted[5] = { "充能石英晶体", "契约团商人", "供给官商人", "伊莉莎", "购买古老召唤石" };
+        for (int w = 0; w < 5; w++)
+        {
+            bool found = false;
+            for (size_t i = 0; i < items.size(); i++)
+                if (items[i].name == wanted[w]) found = true;
+            printf("      包含 %s：%s\n", wanted[w], found ? "是" : "否");
+            Check(found, "物品采集包含要求的按钮");
+        }
+
+        for (size_t i = 0; i < items.size(); i++)
+        {
+            std::string text = bosstimer::ResolveDailyText(items[i],
+                2026, 11, 6, 5, 12, 0); // 2026-11-06 周五 12:00
+            printf("      %s -> %s\n", items[i].name.c_str(), text.c_str());
+            Check(!text.empty(), "日常按钮有发送文本");
+            Check(text.find("[&") != std::string::npos, "日常文本含点位");
+            if (items[i].weekly)
+                Check(text.find("2026-11-05") != std::string::npos, "契约团商人取到最近的周四日期");
+        }
+
+        Check(lists.size() == 2, "日常有 2 个列表");
+        for (size_t i = 0; i < lists.size(); i++)
+        {
+            printf("      列表 %s：%d 条\n", lists[i].name.c_str(), (int)lists[i].lines.size());
+            Check(!lists[i].lines.empty(), "日常列表非空");
+            Check(lists[i].name == "日常大型地下城赏金" || lists[i].name == "碎层", "列表名称正确");
+        }
+    }
+
     printf(gFail == 0 ? "\nALL PASSED\n" : "\nFAILED (%d)\n", gFail);
     return gFail == 0 ? 0 : 1;
 }

@@ -70,6 +70,7 @@ struct Config
     int refreshMin = 30;
     std::string dataUrl = "https://gw2.wishingstarmoye.com/la-assets/gw2timer/data/timerbox_bossdata.js";
     std::string eventsPage = "https://gw2.wishingstarmoye.com/gw2timer";
+    std::string dailyUrl = "https://gw2.wishingstarmoye.com/daily";
     int openDelay = 180;
     int charGap = 2;
     int sendMode = 0;
@@ -81,6 +82,7 @@ static std::mutex gCfgMx;
 static std::string gCfgPath;
 static std::string gCachePath;
 static std::string gEventCachePath;
+static std::string gDailyCachePath;
 static std::string gAddonDir;
 
 struct ChannelPreset
@@ -191,6 +193,7 @@ static void InitPaths()
     gCfgPath = gAddonDir + "\\BossTimer.ini";
     gCachePath = gAddonDir + "\\bossdata_cache.js";
     gEventCachePath = gAddonDir + "\\eventdata_cache.js";
+    gDailyCachePath = gAddonDir + "\\dailydata_cache.html";
 }
 
 static void SaveCfg()
@@ -225,6 +228,7 @@ static void SaveCfg()
     s += "refreshMin=" + std::to_string(gCfg.refreshMin) + "\n";
     s += "dataUrl=" + gCfg.dataUrl + "\n";
     s += "eventsPage=" + gCfg.eventsPage + "\n";
+    s += "dailyUrl=" + gCfg.dailyUrl + "\n";
     s += "openDelay=" + std::to_string(gCfg.openDelay) + "\n";
     s += "charGap=" + std::to_string(gCfg.charGap) + "\n";
     s += "sendMode=" + std::to_string(gCfg.sendMode) + "\n";
@@ -262,6 +266,7 @@ static void ApplySetting(const std::string& key, const std::string& val)
         }
     }
     else if (key == "eventsPage" && !val.empty()) gCfg.eventsPage = val;
+    else if (key == "dailyUrl" && !val.empty()) gCfg.dailyUrl = val;
     else if (key == "prefix")
     {
         gCfg.prefix = val;
@@ -312,7 +317,7 @@ static void LoadCfg()
     if (gCfg.refreshMin < 5) gCfg.refreshMin = 5;
     if (gCfg.graceMin < 0) gCfg.graceMin = 0;
     if (gCfg.graceMin > 120) gCfg.graceMin = 120;
-    if (gCfg.filterMode < 0 || gCfg.filterMode > 2) gCfg.filterMode = 0;
+    if (gCfg.filterMode < 0 || gCfg.filterMode > 3) gCfg.filterMode = 0;
 }
 
 ///----------------------------------------------------------------------------------------------------
@@ -424,13 +429,18 @@ static bool HttpGetText(const std::wstring& wurl, std::string& out, std::string&
 
 static std::vector<bosstimer::BossData> gBosses;
 static std::vector<bosstimer::EventEntry> gEvents;
+static std::vector<bosstimer::DailyItem> gDailyItems;
+static std::vector<bosstimer::DailyList> gDailyLists;
 static std::mutex gBossMx;
 static std::atomic<int> gBossVer(0);
 static std::atomic<int> gEventVer(0);
+static std::atomic<int> gDailyVer(0);
 static std::string gSource = "内置";
 static std::string gUpdatedText = "未更新";
 static std::string gEventSource = "未加载";
 static std::string gEventUpdatedText;
+static std::string gDailySource = "未加载";
+static std::string gDailyUpdatedText;
 static std::string gLastError;
 static std::atomic<bool> gFetching(false);
 static std::atomic<bool> gStop(false);
@@ -469,6 +479,53 @@ static void MarkEventUpdated(const char* source)
 {
     gEventSource = source;
     gEventUpdatedText = ClockText();
+}
+
+static void MarkDailyUpdated(const char* source)
+{
+    gDailySource = source;
+    gDailyUpdatedText = ClockText();
+}
+
+static void FetchDaily(std::string& errors)
+{
+    std::string url;
+    {
+        std::lock_guard<std::mutex> lock(gCfgMx);
+        url = gCfg.dailyUrl;
+    }
+
+    std::string html;
+    std::string err;
+    if (!HttpGetText(Utf8ToWide(url), html, err))
+    {
+        errors += "日常页面抓取失败：" + err + "\n";
+        return;
+    }
+
+    std::vector<bosstimer::DailyItem> items;
+    std::vector<bosstimer::DailyList> lists;
+    std::string perr;
+    if (!bosstimer::ParseDailyHtml(html, items, lists, &perr))
+    {
+        errors += "日常页面解析失败：" + perr + "\n";
+        return;
+    }
+
+    int itemCount = (int)items.size();
+    int listCount = (int)lists.size();
+    {
+        std::lock_guard<std::mutex> lock(gBossMx);
+        gDailyItems.swap(items);
+        gDailyLists.swap(lists);
+        gDailyVer++;
+    }
+    WriteFileUtf8(gDailyCachePath, html);
+    MarkDailyUpdated("网络");
+
+    char buf[128];
+    snprintf(buf, sizeof(buf), "日常采集抓取成功：%d 项 + %d 个列表", itemCount, listCount);
+    LogInfo(buf);
 }
 
 // 页面里引用的数据文件名带日期版本，从 HTML 里找当前地址
@@ -582,6 +639,7 @@ static void FetchOnce()
     }
 
     FetchEvents(errors);
+    FetchDaily(errors);
 
     gLastError = Trim(errors);
     gFetching = false;
@@ -642,6 +700,19 @@ static void InitData()
         std::lock_guard<std::mutex> lock(gBossMx);
         gEvents.swap(events); gEventVer++;
         MarkEventUpdated("缓存");
+    }
+
+    std::string dbody;
+    std::vector<bosstimer::DailyItem> ditem;
+    std::vector<bosstimer::DailyList> dlists;
+    std::string derr;
+    if (ReadFileUtf8(gDailyCachePath, dbody) && bosstimer::ParseDailyHtml(dbody, ditem, dlists, &derr))
+    {
+        std::lock_guard<std::mutex> lock(gBossMx);
+        gDailyItems.swap(ditem);
+        gDailyLists.swap(dlists);
+        gDailyVer++;
+        MarkDailyUpdated("缓存");
     }
 }
 
@@ -777,34 +848,45 @@ static void SendLoop()
 
 static std::string PrefixLabel();
 
-static void QueueJob(const SendJob& job, const std::string& channelLabel)
+static void QueueSendLines(const std::vector<std::string>& lines, bool overridePrefix = false,
+                           const std::string& prefix = std::string())
 {
+    if (lines.empty()) return;
+
+    std::string channelLabel = overridePrefix
+        ? (prefix.empty() ? "当前频道" : ("/" + prefix))
+        : PrefixLabel();
+
     {
         std::lock_guard<std::mutex> lock(gSendMx);
-        gSendQ.push_back(job);
+        for (size_t i = 0; i < lines.size(); i++)
+        {
+            if (lines[i].empty()) continue;
+            SendJob job;
+            job.body = lines[i];
+            job.overridePrefix = overridePrefix;
+            job.prefix = prefix;
+            gSendQ.push_back(job);
+        }
     }
     gSendCv.notify_one();
 
-    gStatus = "已发送 → " + channelLabel;
-    gStatusUntil = GetTickCount() + 2500;
+    gStatus = "已发送 " + std::to_string(lines.size()) + " 条 → " + channelLabel;
+    gStatusUntil = GetTickCount() + 2800;
     gReleaseFocus = true;
-    LogInfo("排队发送（" + channelLabel + "）：" + job.body);
+
+    for (size_t i = 0; i < lines.size(); i++)
+        LogInfo("排队发送（" + channelLabel + "）：" + lines[i]);
 }
 
 static void QueueSend(const std::string& line)
 {
-    SendJob job;
-    job.body = line;
-    QueueJob(job, PrefixLabel());
+    QueueSendLines(std::vector<std::string>(1, line));
 }
 
 static void QueueSendTo(const std::string& line, const std::string& prefix)
 {
-    SendJob job;
-    job.body = line;
-    job.overridePrefix = true;
-    job.prefix = prefix;
-    QueueJob(job, prefix.empty() ? "当前频道" : ("/" + prefix));
+    QueueSendLines(std::vector<std::string>(1, line), true, prefix);
 }
 
 ///----------------------------------------------------------------------------------------------------
@@ -816,6 +898,7 @@ static ImVec4 gPanelRectPrev(0, 0, 0, 0);
 
 static bool gMenuOpen = false;
 static std::string gMenuMessage;
+static std::vector<std::string> gMenuLines;
 static ImVec2 gMenuPos(0, 0);
 static ImVec4 gMenuRect(0, 0, 0, 0);
 static char gMenuCustom[64] = {};
@@ -860,8 +943,10 @@ static void OpenRegionMenu(ImVec2 at)
     gRegionOpen = true;
 }
 
-static void OpenChannelMenu(const std::string& message, ImVec2 at)
+static void OpenChannelMenu(const std::vector<std::string>& lines, ImVec2 at)
 {
+    if (lines.empty()) return;
+
     ImGuiIO& io = ImGui::GetIO();
     const float w = 230.0f;
     const float h = 470.0f;
@@ -871,7 +956,13 @@ static void OpenChannelMenu(const std::string& message, ImVec2 at)
     if (at.y < 0.0f) at.y = 0.0f;
 
     gMenuPos = at;
-    gMenuMessage = message;
+    gMenuLines = lines;
+    gMenuMessage.clear();
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        if (i > 0) gMenuMessage += "\n";
+        gMenuMessage += lines[i];
+    }
     gMenuCustom[0] = 0;
     gMenuOpen = true;
 }
@@ -920,7 +1011,7 @@ static void DrawChannelMenu()
         if (kPresets[i].code[0]) label += std::string(" ( /") + kPresets[i].code + " )";
         if (ImGui::Selectable(label.c_str()))
         {
-            QueueSendTo(gMenuMessage, kPresets[i].code);
+            QueueSendLines(gMenuLines, true, kPresets[i].code);
             gMenuOpen = false;
         }
     }
@@ -937,7 +1028,7 @@ static void DrawChannelMenu()
     {
         std::string prefix = Trim(gMenuCustom);
         if (!prefix.empty() && prefix[0] == '/') prefix.erase(0, 1);
-        QueueSendTo(gMenuMessage, prefix);
+        QueueSendLines(gMenuLines, true, prefix);
         gMenuOpen = false;
         gMenuCustom[0] = 0;
     }
@@ -1060,6 +1151,7 @@ struct UiRow
     std::string sub;
     std::string countdown;
     std::string message;
+    std::vector<std::string> lines;
     bool ongoing = false;
     bool soon = false;
     long long key = 0;
@@ -1201,11 +1293,13 @@ static void DrawRow(const UiRow& row, int id, float btnAlpha)
 
     if (clicked && !gMenuOpen && !gRegionOpen && !gMenuClosedThisFrame)
     {
-        QueueSend(row.message);
+        if (row.lines.empty()) QueueSend(row.message);
+        else QueueSendLines(row.lines);
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
     {
-        OpenChannelMenu(row.message, ImGui::GetIO().MousePos);
+        if (row.lines.empty()) OpenChannelMenu(std::vector<std::string>(1, row.message), ImGui::GetIO().MousePos);
+        else OpenChannelMenu(row.lines, ImGui::GetIO().MousePos);
     }
 
     gHitRects.push_back(ImVec4(p.x, p.y, b.x, b.y));
@@ -1232,20 +1326,29 @@ void RenderMain()
 
     static std::vector<bosstimer::BossData> cachedBosses;
     static std::vector<bosstimer::EventEntry> cachedEvents;
+    static std::vector<bosstimer::DailyItem> cachedDailyItems;
+    static std::vector<bosstimer::DailyList> cachedDailyLists;
     static int cachedBossVer = -1;
     static int cachedEventVer = -1;
+    static int cachedDailyVer = -1;
 
-    if (cachedBossVer != gBossVer.load() || cachedEventVer != gEventVer.load())
+    if (cachedBossVer != gBossVer.load() || cachedEventVer != gEventVer.load() ||
+        cachedDailyVer != gDailyVer.load())
     {
         std::lock_guard<std::mutex> lock(gBossMx);
         cachedBosses = gBosses;
         cachedEvents = gEvents;
+        cachedDailyItems = gDailyItems;
+        cachedDailyLists = gDailyLists;
         cachedBossVer = gBossVer.load();
         cachedEventVer = gEventVer.load();
+        cachedDailyVer = gDailyVer.load();
     }
 
     const std::vector<bosstimer::BossData>& bosses = cachedBosses;
     const std::vector<bosstimer::EventEntry>& events = cachedEvents;
+    const std::vector<bosstimer::DailyItem>& dailyItems = cachedDailyItems;
+    const std::vector<bosstimer::DailyList>& dailyLists = cachedDailyLists;
 
     SYSTEMTIME lt = {};
     SYSTEMTIME ut = {};
@@ -1263,51 +1366,88 @@ void RenderMain()
 
     std::vector<UiRow> rows;
 
-    if (gCfg.filterMode != 2)
+    if (gCfg.filterMode == 3)
     {
-        std::vector<bosstimer::BossRow> bossRows;
-        bosstimer::BuildRows(bosses, nowSec, gCfg.graceMin, bossRows);
-
-        for (size_t i = 0; i < bossRows.size(); i++)
+        for (size_t i = 0; i < dailyItems.size(); i++)
         {
-            const bosstimer::BossRow& br = bossRows[i];
-            if (br.bossIndex < 0 || br.bossIndex >= (int)bosses.size()) continue;
-            const bosstimer::BossData& bd = bosses[(size_t)br.bossIndex];
+            std::string text = bosstimer::ResolveDailyText(dailyItems[i], lt.wYear, lt.wMonth,
+                lt.wDay, lt.wDayOfWeek, lt.wHour, lt.wMinute);
+            if (text.empty()) continue;
 
             UiRow u;
-            u.name = bd.name;
-            u.sub = "上次 " + bosstimer::FormatHm(br.lastSec) + " · 下次 " +
-                    bosstimer::FormatHm(br.nextSec) + " · " + bd.map;
-            u.countdown = br.countdown;
-            u.message = br.message;
-            u.ongoing = br.ongoing;
-            u.soon = !br.ongoing && (br.nextSec - nowSec) <= 15 * 60;
-            u.key = br.sortKey;
+            u.name = dailyItems[i].name;
+            u.sub = text;
+            u.message = text;
+            u.lines.push_back(text);
+            u.key = (long long)i;
+            rows.push_back(u);
+        }
+
+        for (size_t i = 0; i < dailyLists.size(); i++)
+        {
+            const bosstimer::DailyList& list = dailyLists[i];
+
+            UiRow u;
+            u.name = list.name;
+            u.sub = "点击发送 " + std::to_string(list.lines.size()) + " 条";
+            u.lines = list.lines;
+            for (size_t k = 0; k < list.lines.size(); k++)
+            {
+                if (k > 0) u.message += "\n";
+                u.message += list.lines[k];
+            }
+            u.key = 1000 + (long long)i;
             rows.push_back(u);
         }
     }
-
-    if (gCfg.filterMode != 1)
+    else
     {
-        for (size_t i = 0; i < events.size() && i < gEventSeqs.size(); i++)
+        if (gCfg.filterMode != 2)
         {
-            if (EventHidden(events[i].name)) continue;
+            std::vector<bosstimer::BossRow> bossRows;
+            bosstimer::BuildRows(bosses, nowSec, gCfg.graceMin, bossRows);
 
-            bosstimer::EventRow er;
-            if (!bosstimer::BuildEventRow(events[i], gEventSeqs[i], nowUtcSec, tzMin, er)) continue;
+            for (size_t i = 0; i < bossRows.size(); i++)
+            {
+                const bosstimer::BossRow& br = bossRows[i];
+                if (br.bossIndex < 0 || br.bossIndex >= (int)bosses.size()) continue;
+                const bosstimer::BossData& bd = bosses[(size_t)br.bossIndex];
 
-            UiRow u;
-            u.name = events[i].name;
-            u.sub = "上次 " + bosstimer::FormatHm(er.lastLocalMin * 60) + " · 下次 " +
-                    bosstimer::FormatHm(er.nextLocalMin * 60);
-            if (!er.label.empty()) u.sub += " · " + er.label;
-            u.countdown = er.countdown;
-            u.message = er.message;
-            u.ongoing = false;
-            u.soon = er.secondsToNext <= 15 * 60;
-            u.key = er.secondsToNext;
-            u.isEvent = true;
-            rows.push_back(u);
+                UiRow u;
+                u.name = bd.name;
+                u.sub = "上次 " + bosstimer::FormatHm(br.lastSec) + " · 下次 " +
+                        bosstimer::FormatHm(br.nextSec) + " · " + bd.map;
+                u.countdown = br.countdown;
+                u.message = br.message;
+                u.ongoing = br.ongoing;
+                u.soon = !br.ongoing && (br.nextSec - nowSec) <= 15 * 60;
+                u.key = br.sortKey;
+                rows.push_back(u);
+            }
+        }
+
+        if (gCfg.filterMode != 1)
+        {
+            for (size_t i = 0; i < events.size() && i < gEventSeqs.size(); i++)
+            {
+                if (EventHidden(events[i].name)) continue;
+
+                bosstimer::EventRow er;
+                if (!bosstimer::BuildEventRow(events[i], gEventSeqs[i], nowUtcSec, tzMin, er)) continue;
+
+                UiRow u;
+                u.name = events[i].name;
+                u.sub = "上次 " + bosstimer::FormatHm(er.lastLocalMin * 60) + " · 下次 " +
+                        bosstimer::FormatHm(er.nextLocalMin * 60);
+                if (!er.label.empty()) u.sub += " · " + er.label;
+                u.countdown = er.countdown;
+                u.message = er.message;
+                u.ongoing = false;
+                u.soon = er.secondsToNext <= 15 * 60;
+                u.key = er.secondsToNext;
+                u.isEvent = true;
+                rows.push_back(u);
+            }
         }
     }
 
@@ -1388,7 +1528,10 @@ void RenderMain()
             if (pad > 0.0f) ImGui::Dummy(ImVec2(0, pad));
         }
 
-        ImGui::TextDisabled("BOSS %d · 事件 %d", (int)bosses.size(), (int)events.size());
+        if (gCfg.filterMode == 3)
+            ImGui::TextDisabled("日常采集 %d 项 · 列表 %d", (int)dailyItems.size(), (int)dailyLists.size());
+        else
+            ImGui::TextDisabled("BOSS %d · 事件 %d", (int)bosses.size(), (int)events.size());
 
         const char* btnLabel = gFetching.load() ? "抓取中" : "刷新";
         float btnW = ImGui::CalcTextSize(btnLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -1400,8 +1543,8 @@ void RenderMain()
             gHitRects.push_back(ImVec4(a.x, a.y, b.x, b.y));
         }
 
-        const char* filterNames[3] = { "全部", "BOSS", "事件" };
-        for (int i = 0; i < 3; i++)
+        const char* filterNames[4] = { "全部", "BOSS", "事件", "日常采集" };
+        for (int i = 0; i < 4; i++)
         {
             if (i > 0) ImGui::SameLine();
             bool active = (gCfg.filterMode == i);
@@ -1535,23 +1678,38 @@ void RenderOptions()
             changed = true;
         }
 
+        char dailyBuf[512];
+        snprintf(dailyBuf, sizeof(dailyBuf), "%s", gCfg.dailyUrl.c_str());
+        if (ImGui::InputText("日常页面地址", dailyBuf, sizeof(dailyBuf)))
+        {
+            std::lock_guard<std::mutex> lock(gCfgMx);
+            gCfg.dailyUrl = Trim(dailyBuf);
+            changed = true;
+        }
+
         if (ImGui::SliderInt("自动刷新（分钟）", &gCfg.refreshMin, 5, 180)) changed = true;
 
         if (ImGui::Button("立即刷新")) RequestRefresh();
         ImGui::SameLine();
         if (gFetching.load()) ImGui::TextDisabled("抓取中…");
-        else ImGui::TextDisabled("会同时更新 BOSS 与事件数据");
+        else ImGui::TextDisabled("会同时更新 BOSS、事件与日常数据");
 
         size_t bossCount = 0;
         size_t eventCount = 0;
+        size_t dailyCount = 0;
+        size_t dailyListCount = 0;
         {
             std::lock_guard<std::mutex> lock(gBossMx);
             bossCount = gBosses.size();
             eventCount = gEvents.size();
+            dailyCount = gDailyItems.size();
+            dailyListCount = gDailyLists.size();
         }
         ImGui::TextDisabled("BOSS：%s · %s · 共 %d 项", gSource.c_str(), gUpdatedText.c_str(), (int)bossCount);
         ImGui::TextDisabled("事件：%s · %s · 共 %d 项", gEventSource.c_str(),
             gEventUpdatedText.empty() ? "未更新" : gEventUpdatedText.c_str(), (int)eventCount);
+        ImGui::TextDisabled("日常：%s · %s · %d 项 + %d 个列表", gDailySource.c_str(),
+            gDailyUpdatedText.empty() ? "未更新" : gDailyUpdatedText.c_str(), (int)dailyCount, (int)dailyListCount);
 
         if (!gLastError.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1.0f), "%s", gLastError.c_str());
@@ -1699,7 +1857,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 4;
+    AddonDef.Version.Revision = 5;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;

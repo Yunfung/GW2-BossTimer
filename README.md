@@ -8,7 +8,9 @@
 
 - 自动读取[星岬岛 BOSS 计时器](https://gw2.wishingstarmoye.com/index.php/gw2timerbox)的时刻表（24 个世界 BOSS），每 30 分钟抓取一次
 - 同时读取[星岬岛事件时间表](https://gw2.wishingstarmoye.com/gw2timer)（45 个区域/事件，阶段时间轴），与 BOSS 合并成一个列表
-- 面板顶部提供「全部 / BOSS / 事件」过滤按钮
+- 面板顶部提供「全部 / BOSS / 事件 / 日常采集」过滤按钮
+- **日常采集**页：读取[星岬岛日常](https://gw2.wishingstarmoye.com/daily)的「物品采集」，生成充能石英晶体、契约团商人、供给官商人、伊莉莎、购买古老召唤石等传送按钮（契约团商人按周自动取当前点位）
+- 日常采集页另含「日常大型地下城赏金」「碎层」两个按钮，点击后按行依次发送当天列表
 - **右键「事件」按钮**打开区域筛选：可按资料片整组勾选，也可逐条勾选；默认全部显示，可一键全选 / 全不选
 - 面板每个条目一个按钮，**进行中的 BOSS 排最上面**，其余按「下次开始」的倒计时从近到远，每秒自动重排
 - 点击按钮发送一行文本，例如：
@@ -49,7 +51,8 @@ powershell -ExecutionPolicy Bypass -File release\BOSS计时器安装.ps1 -Action
 
 - 左键 BOSS 按钮：按默认频道发送
 - 右键 BOSS 按钮：选择本次发送的频道
-- 顶部「全部 / BOSS / 事件」：过滤列表
+- 顶部「全部 / BOSS / 事件 / 日常采集」：过滤 / 切换页面
+- 日常采集页：物品采集按点位发送；「日常大型地下城赏金」「碎层」会逐行发送当天列表
 - 鼠标悬停：预览将要发送的完整文本
 - `F10`：显示 / 隐藏面板
 - 按住面板标题栏可拖动位置
@@ -61,6 +64,7 @@ powershell -ExecutionPolicy Bypass -File release\BOSS计时器安装.ps1 -Action
 - 配置：`addons\BossTimer\BossTimer.ini`
 - BOSS 数据缓存：`addons\BossTimer\bossdata_cache.js`
 - 事件数据缓存：`addons\BossTimer\eventdata_cache.js`
+- 日常页面缓存：`addons\BossTimer\dailydata_cache.html`
 
 数据源为固定时刻表，不含实时服务器状态；「上次/下次」和「进行中」都在本地按页面规则计算。事件表按页面规则以 00:00 UTC 为起点、每 2 小时对齐，个别条目（约科进攻、迷雾武器商人）按当天星期/日期动态生成。
 

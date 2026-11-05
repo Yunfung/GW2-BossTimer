@@ -953,4 +953,273 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     return true;
 }
 
+// ---------- 日常采集（星岬岛 /daily 页面） ----------
+struct DailyItem
+{
+    std::string name;
+    std::string text; // 静态复制文本（含点位）
+    bool weekly = false;
+    std::string weeklyTemplate;
+
+    struct Slot
+    {
+        int day = 0; // 0 = 周日（页面 weekday(n-1)，英文 locale 周日为一周起点）
+        int hh = 0;
+        int mm = 0;
+        std::string detail;
+    };
+    std::vector<Slot> slots;
+};
+
+struct DailyList
+{
+    std::string name;
+    std::vector<std::string> lines;
+};
+
+inline std::string DecodeEntities(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); i++)
+    {
+        if (s[i] != '&') { out += s[i]; continue; }
+
+        size_t semi = s.find(';', i);
+        if (semi == std::string::npos || semi - i > 8) { out += s[i]; continue; }
+
+        std::string ent = s.substr(i + 1, semi - i - 1);
+        if (ent == "amp") out += '&';
+        else if (ent == "lt") out += '<';
+        else if (ent == "gt") out += '>';
+        else if (ent == "quot") out += '"';
+        else if (ent == "apos" || ent == "#39") out += '\'';
+        else if (ent == "nbsp") out += ' ';
+        else { out += '&'; continue; }
+        i = semi;
+    }
+    return out;
+}
+
+inline bool ExtractAttr(const std::string& block, const char* marker, char quote, std::string& out)
+{
+    size_t p = block.find(marker);
+    if (p == std::string::npos) return false;
+    p += strlen(marker);
+    if (p < block.size() && block[p] == quote) p++;
+    size_t e = block.find(quote, p);
+    if (e == std::string::npos) return false;
+    out = block.substr(p, e - p);
+    return true;
+}
+
+inline bool ExtractLabel(const std::string& block, std::string& out)
+{
+    size_t p = block.find("<span style=");
+    if (p == std::string::npos) return false;
+    size_t gt = block.find('>', p);
+    if (gt == std::string::npos) return false;
+    size_t e = block.find("</span>", gt);
+    if (e == std::string::npos) return false;
+    out = block.substr(gt + 1, e - gt - 1);
+    return true;
+}
+
+inline bool IsLeapYear(int y)
+{
+    return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+}
+
+inline void PrevDay(int& y, int& m, int& d)
+{
+    static const int dim[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    d--;
+    if (d >= 1) return;
+    m--;
+    if (m < 1) { m = 12; y--; }
+    d = dim[m - 1];
+    if (m == 2 && IsLeapYear(y)) d = 29;
+}
+
+// 按页面脚本的规则解析按周轮换的文案（契约团商人）
+inline std::string ResolveDailyText(const DailyItem& item, int year, int month, int day,
+                                    int weekdaySun0, int hh, int mm)
+{
+    if (!item.weekly) return item.text;
+    if (item.slots.empty()) return item.text;
+
+    int nowMin = weekdaySun0 * 1440 + hh * 60 + mm;
+    int best = -1;
+    const DailyItem::Slot* pick = nullptr;
+    for (size_t i = 0; i < item.slots.size(); i++)
+    {
+        int t = item.slots[i].day * 1440 + item.slots[i].hh * 60 + item.slots[i].mm;
+        if (t <= nowMin && t > best)
+        {
+            best = t;
+            pick = &item.slots[i];
+        }
+    }
+    if (!pick)
+    {
+        pick = &item.slots.back();
+        best = pick->day * 1440 + pick->hh * 60 + pick->mm - 7 * 1440;
+    }
+
+    int slotClock = pick->hh * 60 + pick->mm;
+    int nowClock = hh * 60 + mm;
+    int shiftDays = (weekdaySun0 - pick->day + 7) % 7;
+    if (shiftDays == 0 && slotClock > nowClock) shiftDays = 7;
+
+    for (int i = 0; i < shiftDays; i++) PrevDay(year, month, day);
+
+    char date[32];
+    snprintf(date, sizeof(date), "%04d-%02d-%02d", year, month, day);
+
+    std::string out = item.weeklyTemplate;
+    size_t p = out.find("{time}");
+    if (p != std::string::npos) out.replace(p, 6, date);
+    p = out.find("{detail}");
+    if (p != std::string::npos) out.replace(p, 8, pick->detail);
+    return out;
+}
+
+inline bool ParseDailyHtml(const std::string& html, std::vector<DailyItem>& items,
+                           std::vector<DailyList>& lists, std::string* err)
+{
+    items.clear();
+    lists.clear();
+
+    // 物品采集：定位 tab 内容
+    size_t g = html.find("id=\"tab-content-gathers\"");
+    if (g == std::string::npos)
+    {
+        if (err) *err = "找不到物品采集页签";
+        return false;
+    }
+    size_t gEnd = html.find("tab-content-", g + 10);
+    if (gEnd == std::string::npos) gEnd = html.size();
+    std::string gathers = html.substr(g, gEnd - g);
+
+    size_t pos = 0;
+    while ((pos = gathers.find("<li class=\"list-group-item\"", pos)) != std::string::npos)
+    {
+        size_t close = gathers.find("</li>", pos);
+        if (close == std::string::npos) break;
+        std::string block = gathers.substr(pos, close - pos);
+        pos = close + 5;
+
+        DailyItem item;
+        std::string label;
+        if (!ExtractLabel(block, label)) continue;
+        item.name = DecodeEntities(label);
+
+        std::string clip;
+        if (ExtractAttr(block, "data-clipboard-text=", '"', clip))
+            item.text = DecodeEntities(clip);
+
+        std::string weeks;
+        if (ExtractAttr(block, "data-interval-weeks=", '\'', weeks))
+        {
+            std::string tmpl;
+            if (ExtractAttr(block, "data-copy-template=", '"', tmpl))
+                item.weeklyTemplate = DecodeEntities(tmpl);
+            item.weekly = !item.weeklyTemplate.empty();
+
+            if (item.weekly)
+            {
+                JsonReader r(weeks.c_str(), weeks.c_str() + weeks.size());
+                if (r.Peek('['))
+                {
+                    for (;;)
+                    {
+                        r.SkipWs();
+                        if (r.Peek(']')) break;
+                        if (!r.Peek('{')) break;
+
+                        std::string t, d;
+                        for (;;)
+                        {
+                            r.SkipWs();
+                            if (r.Peek('}')) break;
+                            std::string k;
+                            if (!r.ParseString(k)) return false;
+                            if (!r.Peek(':')) return false;
+                            std::string v;
+                            if (!r.ParseString(v)) return false;
+                            if (k == "time") t = v;
+                            else if (k == "detail") d = v;
+                            r.SkipWs();
+                            if (r.Peek(',')) continue;
+                            if (!r.Peek('}')) return false;
+                            break;
+                        }
+
+                        DailyItem::Slot slot;
+                        int dayIdx = 0, ih = 0, im = 0;
+                        if (sscanf_s(t.c_str(), "%d %d:%d", &dayIdx, &ih, &im) == 3)
+                        {
+                            slot.day = dayIdx - 1;
+                            slot.hh = ih;
+                            slot.mm = im;
+                            slot.detail = DecodeEntities(d);
+                            item.slots.push_back(slot);
+                        }
+
+                        r.SkipWs();
+                        if (r.Peek(',')) continue;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (item.name.empty()) continue;
+        if (item.weekly || item.text.find("[&") != std::string::npos)
+            items.push_back(item);
+    }
+
+    // 日常大型地下城赏金 / 碎层
+    const char* cardIds[2] = { "dailycard_daily_Raid", "dailycard_daily_fractal" };
+    const char* cardNames[2] = { "日常大型地下城赏金", "碎层" };
+    for (int c = 0; c < 2; c++)
+    {
+        std::string marker = std::string("id=\"") + cardIds[c] + "\"";
+        size_t p = html.find(marker);
+        if (p == std::string::npos) continue;
+
+        size_t nextCard = html.find("class=\"card dailycard\"", p + marker.size());
+        if (nextCard == std::string::npos) nextCard = html.size();
+        std::string chunk = html.substr(p, nextCard - p);
+
+        DailyList list;
+        list.name = cardNames[c];
+
+        size_t lp = 0;
+        while ((lp = chunk.find("<li class=\"list-group-item\"", lp)) != std::string::npos)
+        {
+            size_t close = chunk.find("</li>", lp);
+            if (close == std::string::npos) break;
+            std::string block = chunk.substr(lp, close - lp);
+            lp = close + 5;
+
+            std::string label;
+            if (ExtractLabel(block, label))
+            {
+                std::string line = DecodeEntities(label);
+                if (!line.empty()) list.lines.push_back(line);
+            }
+        }
+
+        if (!list.lines.empty()) lists.push_back(list);
+    }
+
+    if (items.empty() && lists.empty())
+    {
+        if (err) *err = "没有解析到任何日常条目";
+        return false;
+    }
+    return true;
+}
+
 } // namespace bosstimer
