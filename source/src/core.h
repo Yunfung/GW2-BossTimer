@@ -514,6 +514,8 @@ struct EventRow
     int lastLocalMin = 0;
     int nextLocalMin = 0;
     long long secondsToNext = 0;
+    long long sortKey = 0;
+    bool ongoing = false;
     std::string countdown;
     std::string label;
     std::string chatlink;
@@ -935,16 +937,33 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     it = entry.segments.find(seq[(size_t)nxt].r);
     if (it != entry.segments.end()) nextSeg = &it->second;
 
-    std::string label = (nextSeg && !nextSeg->name.empty()) ? nextSeg->name
-                      : (curSeg ? curSeg->name : std::string());
-    std::string link = (nextSeg && !nextSeg->chatlink.empty()) ? nextSeg->chatlink
-                      : (curSeg ? curSeg->chatlink : std::string());
+    // 当前有名字的阶段还在持续时间内 -> 进行中
+    const bool ongoing = (curSeg && !curSeg->name.empty() &&
+                          seq[(size_t)cur].s <= pos && pos < seq[(size_t)cur].e);
+
+    std::string label;
+    std::string link;
+    if (ongoing)
+    {
+        label = curSeg->name;
+        link = curSeg->chatlink;
+    }
+    else
+    {
+        label = (nextSeg && !nextSeg->name.empty()) ? nextSeg->name
+              : (curSeg ? curSeg->name : std::string());
+        link = (nextSeg && !nextSeg->chatlink.empty()) ? nextSeg->chatlink
+             : (curSeg ? curSeg->chatlink : std::string());
+    }
 
     row.entryIndex = -1;
     row.lastLocalMin = lastLocal;
     row.nextLocalMin = nextLocal;
     row.secondsToNext = (long long)(seconds + 0.5);
-    row.countdown = CountdownText((int)row.secondsToNext);
+    row.ongoing = ongoing;
+    row.sortKey = ongoing ? (long long)((seq[(size_t)cur].s - pos) * 60.0) - 1
+                          : row.secondsToNext;
+    row.countdown = ongoing ? "进行中" : CountdownText((int)row.secondsToNext);
     row.label = label;
     row.chatlink = link;
     row.message = entry.name + "  上次: " + FormatHm(lastLocal * 60) +

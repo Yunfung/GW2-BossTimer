@@ -212,7 +212,10 @@ int main(int argc, char** argv)
             Check(ok, "世界BOSS 12:00 UTC 可计算");
             printf("      12:00 UTC / 20:00 北京：%s\n", er.message.c_str());
             printf("      倒计时：%s\n", er.countdown.c_str());
-            Check(er.countdown == "15分", "世界BOSS 倒计时 15 分");
+            Check(er.countdown == "进行中", "世界BOSS 12:00 处于进行中");
+            Check(er.ongoing, "世界BOSS 12:00 ongoing=true");
+            Check(er.label == "泰达·科文顿", "进行中显示当前阶段名称");
+            Check(er.sortKey < 0, "进行中的事件排在最上面");
             Check(er.lastLocalMin == 20 * 60 && er.nextLocalMin == 20 * 60 + 15,
                 "世界BOSS 北京时间 20:00 / 20:15");
         }
@@ -229,7 +232,9 @@ int main(int argc, char** argv)
             printf("      00:05 UTC 四风节：%s\n", er.message.c_str());
             Check(er.lastLocalMin == 8 * 60, "上次是当前事件开始 08:00");
             Check(er.nextLocalMin == 8 * 60 + 30, "下次跳过空阶段，取下一个事件开始 08:30");
-            Check(er.countdown == "25分", "倒计时 25 分（到事件开始，不是阶段结束）");
+            Check(er.ongoing, "00:05 正在事件阶段中");
+            Check(er.label == "迷城小船", "进行中显示当前阶段名称");
+            Check(er.countdown == "进行中", "进行中的事件显示进行中");
 
             bosstimer::EventRow er2;
             Check(bosstimer::BuildEventRow(ev[i], seq, 12 * 60, 480, er2), "四风节 00:12 可计算");
