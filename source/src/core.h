@@ -906,8 +906,13 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     int dayAdd = 0;
     if (cur < 0)
     {
-        // 还不到今天第一个事件：上次算昨天最后一个
-        cur = named.back();
+        // 还不到今天第一个事件：取昨天最后一个事件（必须在 24 点之前）
+        int lastYesterday = -1;
+        for (size_t k = 0; k < named.size(); k++)
+        {
+            if (seq[(size_t)named[k]].s < 1440) lastYesterday = named[k];
+        }
+        cur = (lastYesterday >= 0) ? lastYesterday : named.back();
         nxt = named.front();
     }
     else

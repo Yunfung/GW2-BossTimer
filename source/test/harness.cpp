@@ -220,6 +220,21 @@ int main(int argc, char** argv)
                 "世界BOSS 北京时间 20:00 / 20:15");
         }
 
+        // 跨天：魔径异常体 00:17 UTC（北京 08:17）下一个事件 08:20，上一个应是 06:20
+        for (size_t i = 0; i < ev.size(); i++)
+        {
+            if (ev[i].name != "魔径异常体") continue;
+            std::vector<bosstimer::SeqSeg> seq;
+            bosstimer::BuildEventSequence(ev[i], 0, 0, seq);
+            bosstimer::EventRow er;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 17 * 60, 480, er), "魔径异常体 00:17 可计算");
+            printf("      00:17 UTC 魔径异常体：%s\n", er.message.c_str());
+            Check(er.lastLocalMin == 6 * 60 + 20, "上次是上一个事件开始 06:20");
+            Check(er.nextLocalMin == 8 * 60 + 20, "下次是 08:20");
+            Check(er.countdown == "3分", "倒计时 3 分");
+            Check(er.label == "林线瀑布", "下一个事件是林线瀑布");
+        }
+
         // 跳过空阶段：四风节在 00:05 UTC 处于“寻宝开始”(0-10)，下一个有名阶段是 00:30 的“准备”
         for (size_t i = 0; i < ev.size(); i++)
         {
