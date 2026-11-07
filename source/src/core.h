@@ -943,22 +943,76 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     if (it != entry.segments.end()) nextSeg = &it->second;
 
     // 当前有名字的阶段还在持续时间内 -> 进行中
-    const bool ongoing = (curSeg && !curSeg->name.empty() &&
-                          seq[(size_t)cur].s <= pos && pos < seq[(size_t)cur].e);
+    bool ongoing = (curSeg && !curSeg->name.empty() &&
+                    seq[(size_t)cur].s <= pos && pos < seq[(size_t)cur].e);
 
     std::string label;
     std::string link;
-    if (ongoing)
+
+    // 有的行每格是独立事件（如世界BOSS 的每个 BOSS），copy 不会以“区域名 - ”开头；
+    // 这类行要按同一个 BOSS/阶段算上次、下次。
+    const EventSegment* relSeg = ongoing ? curSeg : nextSeg;
+    bool phaseIsEvent = false;
+    if (relSeg && !relSeg->name.empty())
     {
-        label = curSeg->name;
-        link = curSeg->chatlink;
+        std::string prefix = entry.name + " - ";
+        phaseIsEvent = (relSeg->copy.compare(0, prefix.size(), prefix) != 0);
     }
-    else
+
+    if (phaseIsEvent)
     {
-        label = (nextSeg && !nextSeg->name.empty()) ? nextSeg->name
-              : (curSeg ? curSeg->name : std::string());
-        link = (nextSeg && !nextSeg->chatlink.empty()) ? nextSeg->chatlink
-             : (curSeg ? curSeg->chatlink : std::string());
+        int relIdx = ongoing ? cur : nxt;
+        int relR = seq[(size_t)relIdx].r;
+
+        std::vector<int> occ;
+        for (size_t i = 0; i < seq.size(); i++)
+        {
+            if (seq[i].r == relR) occ.push_back((int)i);
+        }
+
+        if (occ.size() >= 2)
+        {
+            int gap = seq[(size_t)occ[1]].s - seq[(size_t)occ[0]].s;
+            if (gap <= 0) gap = 60;
+
+            int prevS = seq[(size_t)relIdx].s;
+            int nextS = -1;
+            for (size_t k = 0; k < occ.size(); k++)
+            {
+                int s = seq[(size_t)occ[k]].s;
+                if (s > pos) { nextS = s; break; }
+                prevS = s;
+            }
+            if (nextS < 0) nextS = seq[(size_t)occ.front()].s + 1440;
+            if (prevS > pos) prevS -= gap;
+
+            lastLocal = ((prevS + tzMin) % 1440 + 1440) % 1440;
+            nextLocal = ((nextS + tzMin) % 1440 + 1440) % 1440;
+            seconds = (nextS - pos) * 60.0;
+            if (seconds < 0.0) seconds += gap * 60.0;
+
+            label = seq[(size_t)relIdx].r == relR && ongoing ? curSeg->name
+                  : (nextSeg && !nextSeg->name.empty() ? nextSeg->name
+                     : (curSeg ? curSeg->name : std::string()));
+            link = ongoing ? curSeg->chatlink
+                 : (nextSeg && !nextSeg->chatlink.empty() ? nextSeg->chatlink
+                    : (curSeg ? curSeg->chatlink : std::string()));
+        }
+        else
+        {
+            // 只有一个出现位置，退回整行口径
+            phaseIsEvent = false;
+        }
+    }
+
+    if (!phaseIsEvent)
+    {
+        label = ongoing ? curSeg->name
+              : ((nextSeg && !nextSeg->name.empty()) ? nextSeg->name
+                 : (curSeg ? curSeg->name : std::string()));
+        link = ongoing ? curSeg->chatlink
+             : ((nextSeg && !nextSeg->chatlink.empty()) ? nextSeg->chatlink
+                : (curSeg ? curSeg->chatlink : std::string()));
     }
 
     row.entryIndex = -1;

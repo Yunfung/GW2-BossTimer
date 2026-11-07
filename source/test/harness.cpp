@@ -215,9 +215,17 @@ int main(int argc, char** argv)
             Check(er.countdown == "进行中", "世界BOSS 12:00 处于进行中");
             Check(er.ongoing, "世界BOSS 12:00 ongoing=true");
             Check(er.label == "泰达·科文顿", "进行中显示当前阶段名称");
+
+            // 截图场景：北京 09:52，暗影巨兽进行中，应显示 09:45 / 11:45
+            bosstimer::EventRow erW;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 112 * 60, 480, erW), "世界BOSS 01:52 UTC 可计算");
+            printf("      01:52 UTC 世界BOSS：%s\n", erW.message.c_str());
+            Check(erW.label == "暗影巨兽", "当前 BOSS 是暗影巨兽");
+            Check(erW.lastLocalMin == 9 * 60 + 45, "上次 09:45");
+            Check(erW.nextLocalMin == 11 * 60 + 45, "下次 11:45（同一个 BOSS）");
             Check(er.sortKey < 0, "进行中的事件排在最上面");
-            Check(er.lastLocalMin == 20 * 60 && er.nextLocalMin == 20 * 60 + 15,
-                "世界BOSS 北京时间 20:00 / 20:15");
+            Check(er.lastLocalMin == 20 * 60 && er.nextLocalMin == 23 * 60,
+                "世界BOSS 同一个BOSS：20:00 / 23:00");
         }
 
         // 跨天：魔径异常体 00:17 UTC（北京 08:17）下一个事件 08:20，上一个应是 06:20

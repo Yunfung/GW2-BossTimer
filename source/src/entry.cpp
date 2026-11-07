@@ -1854,7 +1854,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 9;
+    AddonDef.Version.Revision = 10;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;
