@@ -1035,13 +1035,14 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     }
     if (transitionSec < 0) transitionSec = 0;
 
-    row.sortKey = transitionSec;
+    row.sortKey = transitionSec / 60; // 按分钟取整，避免每秒变序
     row.countdown = ongoing ? "进行中" : CountdownText((int)row.secondsToNext);
     row.label = label;
     row.chatlink = link;
 
     std::string third;
-    if (!label.empty() && label != row.title) third = "  " + label + " " + link + " ";
+    if (!label.empty() && label != row.title)
+        third = "  " + entry.name + " - " + label + " " + link + " ";
     else if (!link.empty()) third = "  " + link + " ";
 
     row.message = row.title + "  上次: " + FormatHm(lastLocal * 60) +
