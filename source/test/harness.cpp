@@ -254,7 +254,7 @@ int main(int argc, char** argv)
             Check(bosstimer::BuildEventRow(ev[i], seq, 5 * 60, 480, er), "四风节 00:05 可计算");
             printf("      00:05 UTC 四风节：%s\n", er.message.c_str());
             Check(er.lastLocalMin == 8 * 60, "上次是当前事件开始 08:00");
-            Check(er.nextLocalMin == 8 * 60 + 30, "下次跳过空阶段，取下一个事件开始 08:30");
+            Check(er.nextLocalMin == 10 * 60, "下次是同一事件下一轮 10:00");
             Check(er.ongoing, "00:05 正在事件阶段中");
             Check(er.label == "迷城小船", "进行中显示当前阶段名称");
             Check(er.countdown == "进行中", "进行中的事件显示进行中");
@@ -262,9 +262,23 @@ int main(int argc, char** argv)
             bosstimer::EventRow er2;
             Check(bosstimer::BuildEventRow(ev[i], seq, 12 * 60, 480, er2), "四风节 00:12 可计算");
             printf("      00:12 UTC 四风节（空阶段中）：%s\n", er2.message.c_str());
-            Check(er2.lastLocalMin == 8 * 60, "空阶段中上次仍是上一个事件开始 08:00");
-            Check(er2.nextLocalMin == 8 * 60 + 30, "空阶段中下次仍是 08:30");
+            Check(er2.lastLocalMin == 6 * 60 + 30, "上次是同一事件上一轮 06:30");
+            Check(er2.nextLocalMin == 8 * 60 + 30, "下次是 08:30");
             Check(er2.countdown == "18分", "空阶段倒计时 18 分");
+        }
+
+        // 缠藤深渊进行中：下次应是同一阶段下一轮
+        for (size_t i = 0; i < ev.size(); i++)
+        {
+            if (ev[i].name != "缠藤深渊") continue;
+            std::vector<bosstimer::SeqSeg> seq;
+            bosstimer::BuildEventSequence(ev[i], 0, 0, seq);
+            bosstimer::EventRow er;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 55 * 60, 480, er), "缠藤深渊 00:55 可计算");
+            printf("      00:55 UTC 缠藤深渊：%s\n", er.message.c_str());
+            Check(er.title == "缠藤深渊", "标题仍是区域名");
+            Check(er.lastLocalMin == 8 * 60 + 50, "上次 08:50");
+            Check(er.nextLocalMin == 10 * 60 + 50, "下次同一阶段下一轮 10:50");
         }
     }
 

@@ -1433,10 +1433,10 @@ void RenderMain()
                 if (!bosstimer::BuildEventRow(events[i], gEventSeqs[i], nowUtcSec, tzMin, er)) continue;
 
                 UiRow u;
-                u.name = events[i].name;
+                u.name = er.title;
                 u.sub = "上次 " + bosstimer::FormatHm(er.lastLocalMin * 60) + " · 下次 " +
                         bosstimer::FormatHm(er.nextLocalMin * 60);
-                if (!er.label.empty()) u.sub += " · " + er.label;
+                if (!er.label.empty() && er.label != er.title) u.sub += " · " + er.label;
                 u.countdown = er.countdown;
                 u.message = er.message;
                 u.ongoing = er.ongoing;
@@ -1854,7 +1854,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 10;
+    AddonDef.Version.Revision = 11;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;

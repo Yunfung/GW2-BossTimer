@@ -516,6 +516,7 @@ struct EventRow
     long long secondsToNext = 0;
     long long sortKey = 0;
     bool ongoing = false;
+    std::string title;
     std::string countdown;
     std::string label;
     std::string chatlink;
@@ -949,14 +950,24 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     std::string label;
     std::string link;
 
-    // 有的行每格是独立事件（如世界BOSS 的每个 BOSS），copy 不会以“区域名 - ”开头；
-    // 这类行要按同一个 BOSS/阶段算上次、下次。
+    // 多地点事件（魔径异常体）按整行：上次/下次取相邻地点；
+    // 其余按同一个阶段/事件：上次/下次取它自己的前后两次。
+    const bool rowEvent = (entry.name == "魔径异常体");
+    bool phaseIsEvent = !rowEvent;
+
     const EventSegment* relSeg = ongoing ? curSeg : nextSeg;
-    bool phaseIsEvent = false;
+    bool phaseStyle = false; // 标题用阶段名（世界BOSS 这类 copy 不带区域前缀）
     if (relSeg && !relSeg->name.empty())
     {
-        std::string prefix = entry.name + " - ";
-        phaseIsEvent = (relSeg->copy.compare(0, prefix.size(), prefix) != 0);
+        std::string copyNorm;
+        for (size_t i = 0; i < relSeg->copy.size(); i++)
+            if (relSeg->copy[i] != ' ' && relSeg->copy[i] != '\t') copyNorm += relSeg->copy[i];
+
+        std::string nameNorm;
+        for (size_t i = 0; i < entry.name.size(); i++)
+            if (entry.name[i] != ' ' && entry.name[i] != '\t') nameNorm += entry.name[i];
+
+        phaseStyle = (copyNorm.compare(0, nameNorm.size(), nameNorm) != 0);
     }
 
     if (phaseIsEvent)
@@ -1015,6 +1026,7 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
                 : (curSeg ? curSeg->chatlink : std::string()));
     }
 
+    row.title = phaseStyle ? label : entry.name;
     row.entryIndex = -1;
     row.lastLocalMin = lastLocal;
     row.nextLocalMin = nextLocal;
@@ -1025,9 +1037,13 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     row.countdown = ongoing ? "进行中" : CountdownText((int)row.secondsToNext);
     row.label = label;
     row.chatlink = link;
-    row.message = entry.name + "  上次: " + FormatHm(lastLocal * 60) +
-                  "下次: " + FormatHm(nextLocal * 60) +
-                  "  " + label + " " + link + " ";
+
+    std::string third;
+    if (!label.empty() && label != row.title) third = "  " + label + " " + link + " ";
+    else if (!link.empty()) third = "  " + link + " ";
+
+    row.message = row.title + "  上次: " + FormatHm(lastLocal * 60) +
+                  "下次: " + FormatHm(nextLocal * 60) + third;
     return true;
 }
 
