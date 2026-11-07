@@ -1035,7 +1035,8 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     }
     if (transitionSec < 0) transitionSec = 0;
 
-    row.sortKey = transitionSec / 60; // 按分钟取整，避免每秒变序
+    // 进行中一律排在即将开始前面（组内按开始时间/下一次变化时间）
+    row.sortKey = ongoing ? (long long)(seq[(size_t)cur].s - pos) - 1 : transitionSec / 60;
     row.countdown = ongoing ? "进行中" : CountdownText((int)row.secondsToNext);
     row.label = label;
     row.chatlink = link;

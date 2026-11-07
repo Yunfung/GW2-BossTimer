@@ -1419,7 +1419,7 @@ void RenderMain()
                 u.message = br.message;
                 u.ongoing = br.ongoing;
                 u.soon = !br.ongoing && (br.nextSec - nowSec) <= 15 * 60;
-                u.key = br.sortKey / 60;
+                u.key = br.ongoing ? (br.sortKey / 60) - 1 : (br.sortKey / 60);
                 u.id = (int)rows.size(); rows.push_back(u);
             }
         }
@@ -1858,7 +1858,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     AddonDef.Version.Major = 1;
     AddonDef.Version.Minor = 0;
     AddonDef.Version.Build = 0;
-    AddonDef.Version.Revision = 14;
+    AddonDef.Version.Revision = 15;
     AddonDef.Author = "摸鱼哥";
     AddonDef.Description = "读取星岬岛 BOSS 时刻表，面板按倒计时排序，点击发送一行 BOSS 信息到聊天频道。";
     AddonDef.Load = AddonLoad;

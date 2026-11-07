@@ -214,6 +214,7 @@ int main(int argc, char** argv)
             printf("      倒计时：%s\n", er.countdown.c_str());
             Check(er.countdown == "进行中", "世界BOSS 12:00 处于进行中");
             Check(er.ongoing, "世界BOSS 12:00 ongoing=true");
+            Check(er.sortKey < 0, "进行中排在即将开始前面");
             Check(er.label == "泰达·科文顿", "进行中显示当前阶段名称");
 
             // 截图场景：北京 09:52，暗影巨兽进行中，应显示 09:45 / 11:45
