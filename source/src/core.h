@@ -955,20 +955,9 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     const bool rowEvent = (entry.name == "魔径异常体");
     bool phaseIsEvent = !rowEvent;
 
-    const EventSegment* relSeg = ongoing ? curSeg : nextSeg;
-    bool phaseStyle = false; // 标题用阶段名（世界BOSS 这类 copy 不带区域前缀）
-    if (relSeg && !relSeg->name.empty())
-    {
-        std::string copyNorm;
-        for (size_t i = 0; i < relSeg->copy.size(); i++)
-            if (relSeg->copy[i] != ' ' && relSeg->copy[i] != '\t') copyNorm += relSeg->copy[i];
-
-        std::string nameNorm;
-        for (size_t i = 0; i < entry.name.size(); i++)
-            if (entry.name[i] != ' ' && entry.name[i] != '\t') nameNorm += entry.name[i];
-
-        phaseStyle = (copyNorm.compare(0, nameNorm.size(), nameNorm) != 0);
-    }
+    // 只有世界BOSS/大型世界BOSS这类“每格一个 BOSS”的行用阶段名当标题；
+    // 昼夜交替等阶段的文案（白天/黎明）不带区域，标题必须保留区域名。
+    const bool phaseTitle = (entry.name == "世界BOSS" || entry.name == "大型世界BOSS");
 
     if (phaseIsEvent)
     {
@@ -1026,7 +1015,7 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
                 : (curSeg ? curSeg->chatlink : std::string()));
     }
 
-    row.title = phaseStyle ? label : entry.name;
+    row.title = phaseTitle ? label : entry.name;
     row.entryIndex = -1;
     row.lastLocalMin = lastLocal;
     row.nextLocalMin = nextLocal;

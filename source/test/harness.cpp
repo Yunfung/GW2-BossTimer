@@ -280,6 +280,19 @@ int main(int argc, char** argv)
             Check(er.lastLocalMin == 8 * 60 + 50, "上次 08:50");
             Check(er.nextLocalMin == 10 * 60 + 50, "下次同一阶段下一轮 10:50");
         }
+
+        // 昼夜交替：标题必须保留区域名
+        for (size_t i = 0; i < ev.size(); i++)
+        {
+            if (ev[i].name != "泰瑞亚昼夜交替") continue;
+            std::vector<bosstimer::SeqSeg> seq;
+            bosstimer::BuildEventSequence(ev[i], 0, 0, seq);
+            bosstimer::EventRow er;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 10 * 60, 480, er), "昼夜交替可计算");
+            printf("      00:10 UTC 昼夜：%s\n", er.message.c_str());
+            Check(er.title == "泰瑞亚昼夜交替", "标题保留区域名");
+            Check(!er.label.empty() && er.label != er.title, "阶段名（白天/夜晚）单独显示");
+        }
     }
 
     // 日常采集（可选：第三个参数是 daily 页面 HTML）
