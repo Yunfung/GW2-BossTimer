@@ -952,7 +952,7 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
 
     // 多地点事件（魔径异常体）按整行：上次/下次取相邻地点；
     // 其余按同一个阶段/事件：上次/下次取它自己的前后两次。
-    const bool rowEvent = (entry.name == "魔径异常体");
+    const bool rowEvent = (entry.name == "魔径异常体" || entry.name == "迷雾武器商人");
     bool phaseIsEvent = !rowEvent;
 
     // 只有世界BOSS/大型世界BOSS这类“每格一个 BOSS”的行用阶段名当标题；

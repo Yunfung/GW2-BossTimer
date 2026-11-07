@@ -281,6 +281,38 @@ int main(int argc, char** argv)
             Check(er.nextLocalMin == 10 * 60 + 50, "下次同一阶段下一轮 10:50");
         }
 
+        // 迷雾武器商人：阶段是不同的位置，按整行取相邻地点
+        for (size_t i = 0; i < ev.size(); i++)
+        {
+            if (ev[i].name != "迷雾武器商人") continue;
+            std::vector<bosstimer::SeqSeg> seq;
+            bosstimer::BuildEventSequence(ev[i], 0, 0, seq);
+            bosstimer::EventRow er;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 12 * 3600, 480, er), "迷雾武器商人可计算");
+            printf("      12:00 UTC 迷雾武器商人：%s\n", er.message.c_str());
+            Check(er.title == "迷雾武器商人", "标题是迷雾武器商人");
+
+            int prevS = -1, nextS = -1;
+            for (size_t k = 0; k < seq.size(); k++)
+            {
+                std::map<int, bosstimer::EventSegment>::const_iterator it = ev[i].segments.find(seq[k].r);
+                if (it == ev[i].segments.end() || it->second.name.empty()) continue;
+                if (seq[k].s <= 720) prevS = seq[k].s;
+                else if (nextS < 0) nextS = seq[k].s;
+            }
+            if (prevS < 0)
+            {
+                for (size_t k = 0; k < seq.size(); k++)
+                {
+                    std::map<int, bosstimer::EventSegment>::const_iterator it = ev[i].segments.find(seq[k].r);
+                    if (it != ev[i].segments.end() && !it->second.name.empty() && seq[k].s < 1440)
+                        prevS = seq[k].s;
+                }
+            }
+            Check(er.lastLocalMin == (prevS + 480) % 1440 && er.nextLocalMin == (nextS + 480) % 1440,
+                "迷雾武器商人按整行取相邻地点");
+        }
+
         // 昼夜交替：标题必须保留区域名
         for (size_t i = 0; i < ev.size(); i++)
         {
