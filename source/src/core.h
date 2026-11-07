@@ -1021,8 +1021,21 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     row.nextLocalMin = nextLocal;
     row.secondsToNext = (long long)(seconds + 0.5);
     row.ongoing = ongoing;
-    row.sortKey = ongoing ? (long long)((seq[(size_t)cur].s - pos) * 60.0) - 1
-                          : row.secondsToNext;
+    // 按“下一次状态变化”的时间排序：进行中取当前阶段结束，否则取下次开始。
+    // 这样只有到期的那一行会移动，不会每次刷新都整表重排。
+    long long transitionSec = 0;
+    if (ongoing)
+    {
+        double endMin = (double)seq[(size_t)cur].e;
+        transitionSec = (long long)((endMin - pos) * 60.0);
+    }
+    else
+    {
+        transitionSec = (long long)(seconds + 0.5);
+    }
+    if (transitionSec < 0) transitionSec = 0;
+
+    row.sortKey = transitionSec;
     row.countdown = ongoing ? "进行中" : CountdownText((int)row.secondsToNext);
     row.label = label;
     row.chatlink = link;

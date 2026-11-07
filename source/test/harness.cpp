@@ -223,7 +223,6 @@ int main(int argc, char** argv)
             Check(erW.label == "暗影巨兽", "当前 BOSS 是暗影巨兽");
             Check(erW.lastLocalMin == 9 * 60 + 45, "上次 09:45");
             Check(erW.nextLocalMin == 11 * 60 + 45, "下次 11:45（同一个 BOSS）");
-            Check(er.sortKey < 0, "进行中的事件排在最上面");
             Check(er.lastLocalMin == 20 * 60 && er.nextLocalMin == 23 * 60,
                 "世界BOSS 同一个BOSS：20:00 / 23:00");
         }
