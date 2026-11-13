@@ -1048,6 +1048,11 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
 
     row.message = row.title + "  上次: " + FormatHm(lastLocal * 60) +
                   "下次: " + FormatHm(nextLocal * 60) + third;
+    if (ongoing)
+    {
+        if (!row.message.empty() && row.message.back() != ' ') row.message += ' ';
+        row.message += "进行中";
+    }
     return true;
 }
 
