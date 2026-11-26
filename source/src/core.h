@@ -1041,17 +1041,33 @@ inline bool BuildEventRow(const EventEntry& entry, const std::vector<SeqSeg>& se
     row.label = label;
     row.chatlink = link;
 
-    std::string third;
-    if (!label.empty() && label != row.title)
-        third = "  " + entry.name + " - " + label + " " + link + " ";
-    else if (!link.empty()) third = "  " + link + " ";
+    std::string curName = curSeg ? curSeg->name : std::string();
+    std::string curLink = curSeg ? curSeg->chatlink : std::string();
+    std::string nxtName = nextSeg ? nextSeg->name : std::string();
+    std::string nxtLink = nextSeg ? nextSeg->chatlink : std::string();
 
-    row.message = row.title + "  上次: " + FormatHm(lastLocal * 60) +
-                  "下次: " + FormatHm(nextLocal * 60) + third;
-    if (ongoing)
+    if (ongoing && !curName.empty() && !nxtName.empty() && nxtName != curName)
     {
-        if (!row.message.empty() && row.message.back() != ' ') row.message += ' ';
-        row.message += "进行中";
+        // 进行中且下次地点不同：上次时间 位置坐标 进行中 - 下次时间 位置坐标
+        row.message = row.title + "  上次: " + FormatHm(lastLocal * 60) + " " + curName;
+        if (!curLink.empty()) row.message += " " + curLink;
+        row.message += " 进行中 - 下次: " + FormatHm(nextLocal * 60) + " " + nxtName;
+        if (!nxtLink.empty()) row.message += " " + nxtLink;
+    }
+    else
+    {
+        std::string third;
+        if (!label.empty() && label != row.title)
+            third = "  " + entry.name + " - " + label + " " + link + " ";
+        else if (!link.empty()) third = "  " + link + " ";
+
+        row.message = row.title + "  上次: " + FormatHm(lastLocal * 60) +
+                      "下次: " + FormatHm(nextLocal * 60) + third;
+        if (ongoing)
+        {
+            if (!row.message.empty() && row.message.back() != ' ') row.message += ' ';
+            row.message += "进行中";
+        }
     }
     return true;
 }

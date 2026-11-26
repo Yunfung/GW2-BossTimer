@@ -241,6 +241,13 @@ int main(int argc, char** argv)
             Check(er.nextLocalMin == 8 * 60 + 20, "下次是 08:20");
             Check(er.countdown == "3分", "倒计时 3 分");
             Check(er.label == "林线瀑布", "下一个事件是林线瀑布");
+
+            // 进行中：带下次地点
+            bosstimer::EventRow erRun;
+            Check(bosstimer::BuildEventRow(ev[i], seq, 30 * 60, 480, erRun), "魔径异常体 00:30 可计算");
+            printf("      00:30 UTC 魔径（进行中）：%s\n", erRun.message.c_str());
+            Check(erRun.message == "魔径异常体  上次: 08:20 林线瀑布 [&BEwCAAA=] 进行中 - 下次: 10:20 钢铁平原 [&BOYBAAA=]",
+                "进行中格式：上次时间 位置坐标 进行中 - 下次时间 位置坐标");
         }
 
         // 跳过空阶段：四风节在 00:05 UTC 处于“寻宝开始”(0-10)，下一个有名阶段是 00:30 的“准备”
